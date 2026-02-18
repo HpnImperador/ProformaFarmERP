@@ -45,7 +45,10 @@ Nunca retornar 200 com erro lógico.
 
 CorrelationId sempre presente.
 
-3. Mapeamento Oficial de Status Code
+Regra adicional:
+- Endpoints que retornarem null devem responder com 401, 404 ou 204, nunca 200 com data null.
+
+# 3. Mapeamento Oficial de Status Code
 Status	Quando usar
 200	Operação bem-sucedida
 400	Regra de negócio inválida (AppException)
@@ -54,8 +57,9 @@ Status	Quando usar
 404	Recurso não encontrado
 409	Conflito de estado
 500	Erro interno inesperado
-4. Autenticação e Segurança
-4.1 JWT
+
+# 4. Autenticação e Segurança
+# 4.1 JWT
 
 Access Token com expiração curta
 
@@ -63,7 +67,17 @@ Claims mínimas necessárias
 
 Nunca armazenar dados sensíveis no token
 
-4.2 Refresh Token
+Claims obrigatórias no Access Token:
+- sub (IdUsuario)
+- unique_name (Login)
+- nome
+- uid
+- role
+- iss
+- aud
+- exp
+
+# 4.2 Refresh Token
 
 Armazenado como HASH
 
@@ -75,7 +89,7 @@ Reutilização retorna 401
 
 Multi-sessão permitida (novo login NÃO invalida sessões anteriores)
 
-4.3 Política de Segurança
+# 4.3 Política de Segurança
 
 Tokens expirados nunca retornam do banco
 
@@ -83,7 +97,7 @@ Revogação protegida contra replay
 
 Índice obrigatório em TokenHash
 
-5. Política de Transações
+# 5. Política de Transações
 
 Operações críticas devem ser atômicas:
 
@@ -101,7 +115,7 @@ Abertura/Fechamento de caixa
 
 Se houver múltiplas operações dependentes, devem ocorrer dentro da mesma transação.
 
-6. Step-Up Authentication (Módulos Críticos)
+# 6. Step-Up Authentication (Módulos Críticos)
 
 Módulos sensíveis exigem reautenticação de operador:
 
@@ -127,7 +141,7 @@ Operador autentica para módulo crítico.
 
 Auditoria registra IdUsuarioAmbiente + IdOperador.
 
-7. Auditoria
+# 7. Auditoria
 
 Eventos críticos devem registrar:
 
@@ -145,7 +159,7 @@ Evento
 
 Referência (IdVenda, IdCaixa, etc)
 
-8. Princípios Arquiteturais
+# 8. Princípios Arquiteturais
 
 Clean Architecture
 
@@ -167,7 +181,7 @@ Services não acessam diretamente banco (via Repository)
 
 Dependências apontam para o centro
 
-9. Banco de Dados — Regras Obrigatórias
+# 9. Banco de Dados — Regras Obrigatórias
 
 Índices em colunas de busca frequente
 
@@ -181,7 +195,7 @@ Datas sempre em UTC
 
 Evitar campos nullable desnecessários
 
-10. Observabilidade
+# 10. Observabilidade
 
 CorrelationId em todas as requisições
 
@@ -191,7 +205,7 @@ Erros centralizados via middleware
 
 Nunca expor stacktrace em produção
 
-11. Próximos Passos Evolutivos
+# 11. Próximos Passos Evolutivos
 
 ExceptionMiddleware definitivo
 
@@ -203,27 +217,8 @@ Testes automatizados para Auth
 
 Validação transacional de operações críticas
 
+# 12. Versionamento da API
 
----
-
-# 🎯 Resultado
-
-Agora você tem:
-
-- Documento formal
-- Governança explícita
-- Base para auditoria futura
-- Referência para qualquer novo desenvolvedor
-- Diretriz clara para evoluções
-
----
-
-# Próximo passo recomendado
-
-Agora sim faz sentido partir para:
-
-## 🔥 Implementação definitiva do ExceptionMiddleware
-
-Ele será o pilar que garante que tudo descrito acima seja respeitado automaticamente.
-
-Se quiser, começamos agora.
+- Padrão: /api/v1/
+- Mudanças breaking exigem nova versão
+- Nunca alterar contrato existente sem versionamento
