@@ -19,3 +19,25 @@ Step-up Authentication para PDV (Ponto de Venda)
 Para atender às exigências de segurança farmacêutica, iniciaremos a implementação da reautenticação em operações sensíveis.
 
 Objetivo: Exigir validação extra (Operador + Senha) em momentos críticos (ex: cancelamento de venda ou descontos acima do limite), garantindo rastro de auditoria no PDV.
+
+sequenceDiagram
+    participant U as Usuário/Client
+    participant A as API (Auth Middleware)
+    participant DB as Banco de Dados (SQL)
+
+    Note over U, DB: Fluxo de Refresh Token com Rotação
+    U->>A: Requisição com Access Token (Expirado)
+    A-->>U: Erro 401 (Unauthorized)
+    
+    U->>A: POST /auth/refresh (Envia Refresh Token)
+    A->>DB: Valida Refresh Token & Checa Replay
+    
+    alt Token Inválido ou Reuso Detectado (Replay)
+        DB-->>A: Token Revogado/Inexistente
+        A->>DB: Invalida todos os tokens da sessão (Security Alert)
+        A-->>U: Erro 403 (Forbidden) - Login Necessário
+    else Token Válido
+        DB-->>A: Token OK
+        A->>DB: Revoga Token Antigo & Registra Novo Token (Rotação)
+        A-->>U: Retorna Novo Access Token + Novo Refresh Token
+    end
