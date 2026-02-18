@@ -1,0 +1,6 @@
+@ProformaFarm_HostAddress = http://localhost:5009
+
+GET {{ProformaFarm_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

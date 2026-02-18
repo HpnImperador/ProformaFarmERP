@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ProformaFarm.Application/ProformaFarm.Application.csproj" />
+  <Project Path="ProformaFarm.Domain/ProformaFarm.Domain.csproj" />
+  <Project Path="ProformaFarm.Infrastructure/ProformaFarm.Infrastructure.csproj" />
+  <Project Path="ProformaFarm/ProformaFarm.csproj" />
+</Solution>
