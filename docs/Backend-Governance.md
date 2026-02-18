@@ -26,8 +26,15 @@ Documento oficial de diretrizes arquiteturais, padrões técnicos e políticas d
 
 Todas as respostas seguem o padrão:
 
-******* (padrao sera editado aqui) *********
-
+```json
+{
+  "success": true | false,
+  "code": "OK | ERROR_CODE",
+  "message": "Mensagem descritiva",
+  "correlationId": "trace-id",
+  "data": { ... }
+}
+```
 Classe base: ApiResponse<T>
 
 Regra:
