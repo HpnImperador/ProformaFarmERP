@@ -1,58 +1,65 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+﻿using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using ProformaFarm.Application.DTOs.Auth;
+using ProformaFarm.Application.Interfaces.Auth;
+using ProformaFarm.Application.Options;
+using ProformaFarm.Domain.Entities;
+using System;
+using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
 using System.Security.Claims;
 using System.Text;
-using Microsoft.Extensions.Configuration;
-using Microsoft.IdentityModel.Tokens;
-using ProformaFarm.Domain.Entities;
 
 namespace ProformaFarm.Application.Services.Auth;
 
-public interface IJwtTokenService
-{
-    (string token, DateTime expiresAtUtc) CreateToken(Usuario usuario, string[] perfis);
-}
-
 public sealed class JwtTokenService : IJwtTokenService
 {
-    private readonly IConfiguration _config;
+    private readonly JwtOptions _opts;
 
-    public JwtTokenService(IConfiguration config)
+    public JwtTokenService(IOptions<JwtOptions> options)
     {
-        _config = config;
+        _opts = options?.Value ?? throw new ArgumentNullException(nameof(options));
+
+        if (string.IsNullOrWhiteSpace(_opts.SigningKey))
+            throw new InvalidOperationException("Jwt:SigningKey não configurado.");
+        if (string.IsNullOrWhiteSpace(_opts.Issuer))
+            throw new InvalidOperationException("Jwt:Issuer não configurado.");
+        if (string.IsNullOrWhiteSpace(_opts.Audience))
+            throw new InvalidOperationException("Jwt:Audience não configurado.");
     }
 
-    public (string token, DateTime expiresAtUtc) CreateToken(Usuario usuario, string[] perfis)
+    public JwtTokenResult CreateToken(Usuario usuario, string[] perfis)
     {
-        var issuer = _config["Jwt:Issuer"] ?? "ProformaFarm";
-        var audience = _config["Jwt:Audience"] ?? "ProformaFarm";
-        var key = _config["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key não configurado.");
+        if (usuario is null) throw new ArgumentNullException(nameof(usuario));
+        perfis ??= Array.Empty<string>();
 
-        var expires = DateTime.UtcNow.AddHours(8);
+        var now = DateTimeOffset.UtcNow;
+        var expires = now.AddMinutes(_opts.AccessTokenMinutes);
 
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, usuario.IdUsuario.ToString()),
-            new(JwtRegisteredClaimNames.UniqueName, usuario.Login),
-            new("nome", usuario.Nome),
-            new("uid", usuario.IdUsuario.ToString()),
+            new(JwtRegisteredClaimNames.UniqueName, usuario.Login ?? string.Empty),
+            new("nome", usuario.Nome ?? string.Empty)
         };
 
-        foreach (var p in perfis)
+        foreach (var p in perfis.Where(x => !string.IsNullOrWhiteSpace(x)))
             claims.Add(new Claim(ClaimTypes.Role, p));
 
-        var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
-        var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var jwt = new JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
+        var token = new JwtSecurityToken(
+            issuer: _opts.Issuer,
+            audience: _opts.Audience,
             claims: claims,
-            notBefore: DateTime.UtcNow,
-            expires: expires,
+            notBefore: now.UtcDateTime,
+            expires: expires.UtcDateTime,
             signingCredentials: creds
         );
 
-        var token = new JwtSecurityTokenHandler().WriteToken(jwt);
-        return (token, expires);
+        var accessToken = new JwtSecurityTokenHandler().WriteToken(token);
+        return new JwtTokenResult(accessToken, expires);
     }
 }

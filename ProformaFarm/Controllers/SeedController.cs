@@ -1,10 +1,13 @@
-﻿using ProformaFarm.Infrastructure.Data;
-using Dapper;
+﻿using Dapper;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
+using ProformaFarm.Application.Interfaces.Data;
 using ProformaFarm.Application.Services.Security;
 using ProformaFarm.Domain.Entities;
-using ProformaFarm.Infrastructure.Data;
-using ProformaFarm.Domain.Entities;
+using System;
+using System.Threading.Tasks;
+
 namespace ProformaFarm.Controllers;
 
 [ApiController]
@@ -13,24 +16,28 @@ public sealed class SeedController : ControllerBase
 {
     private readonly ISqlConnectionFactory _factory;
     private readonly IPasswordService _passwords;
+    private readonly IWebHostEnvironment _env;
 
-    public SeedController(ISqlConnectionFactory factory, IPasswordService passwords)
+    public SeedController(ISqlConnectionFactory factory, IPasswordService passwords, IWebHostEnvironment env)
     {
-        _factory = factory;
-        _passwords = passwords;
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _passwords = passwords ?? throw new ArgumentNullException(nameof(passwords));
+        _env = env ?? throw new ArgumentNullException(nameof(env));
     }
 
     /// <summary>
     /// Endpoint TEMPORÁRIO para criar perfis e usuário admin com senha hash.
     /// Remover após o primeiro uso.
     /// </summary>
-    /// <remarks>
-    /// Exemplo:
-    /// POST /api/seed/admin?senha=Admin@123
-    /// </remarks>
     [HttpPost("admin")]
-    public async Task<IActionResult> SeedAdmin([FromQuery] string senha = "Admin@123")
+    public async Task<IActionResult> SeedAdmin(
+        [FromQuery] string senha = "Admin@123",
+        [FromQuery] bool reset = false)
     {
+        // Segurança básica: seed só em Development
+        if (!_env.IsDevelopment())
+            return NotFound();
+
         using var cn = _factory.CreateConnection();
 
         // 1) Cria perfis básicos (idempotente)
@@ -44,70 +51,88 @@ IF NOT EXISTS (SELECT 1 FROM Perfil WHERE Nome = 'SNGPC')  INSERT INTO Perfil (N
         await cn.ExecuteAsync(upsertPerfis);
 
         // 2) Verifica se admin já existe
-        const string getAdmin = @"SELECT TOP 1 IdUsuario, Nome, Login, SenhaHash, Ativo, DataCriacao FROM Usuario WHERE Login = 'admin';";
+        const string getAdmin = @"
+SELECT TOP 1
+  IdUsuario, Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao
+FROM dbo.Usuario
+WHERE Login = 'admin';
+";
         var admin = await cn.QueryFirstOrDefaultAsync<Usuario>(getAdmin);
 
         if (admin is null)
         {
-            // 3) Cria hash
-            var novo = new Usuario
-            {
-                Nome = "Administrador",
-                Login = "admin",
-                Ativo = true,
-                DataCriacao = DateTime.UtcNow
-            };
             var (hash, salt) = _passwords.HashPassword(senha);
 
-            // 4) Insere usuário e retorna IdUsuario
             const string insertAdmin = @"
-INSERT INTO Usuario (Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao)
+INSERT INTO dbo.Usuario (Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao)
 OUTPUT INSERTED.IdUsuario
 VALUES (@Nome, @Login, @SenhaHash, @SenhaSalt, @Ativo, @DataCriacao);
 ";
 
             var idUsuario = await cn.ExecuteScalarAsync<int>(insertAdmin, new
             {
-                novo.Nome,
-                novo.Login,
+                Nome = "Administrador",
+                Login = "admin",
                 SenhaHash = hash,
                 SenhaSalt = salt,
-                Ativo = novo.Ativo,
-                DataCriacao = novo.DataCriacao
+                Ativo = true,
+                DataCriacao = DateTime.UtcNow
             });
 
-            // 5) Vincula ao perfil ADMIN
-            const string vincularAdmin = @"
-DECLARE @IdPerfilAdmin INT = (SELECT IdPerfil FROM Perfil WHERE Nome = 'ADMIN');
-IF NOT EXISTS (SELECT 1 FROM UsuarioPerfil WHERE IdUsuario = @IdUsuario AND IdPerfil = @IdPerfilAdmin)
-    INSERT INTO UsuarioPerfil (IdUsuario, IdPerfil) VALUES (@IdUsuario, @IdPerfilAdmin);
-";
-            await cn.ExecuteAsync(vincularAdmin, new { IdUsuario = idUsuario });
+            await GarantirVinculoAdminAsync(cn, idUsuario);
 
             return Ok(new
             {
                 message = "Seed concluído: admin criado com sucesso.",
                 login = "admin",
-                senha = senha,
+                senha,
                 idUsuario
             });
         }
-        else
-        {
-            // Admin já existe -> garante vínculo ADMIN
-            const string garantirVinculo = @"
-DECLARE @IdPerfilAdmin INT = (SELECT IdPerfil FROM Perfil WHERE Nome = 'ADMIN');
-IF NOT EXISTS (SELECT 1 FROM UsuarioPerfil WHERE IdUsuario = @IdUsuario AND IdPerfil = @IdPerfilAdmin)
-    INSERT INTO UsuarioPerfil (IdUsuario, IdPerfil) VALUES (@IdUsuario, @IdPerfilAdmin);
-";
-            await cn.ExecuteAsync(garantirVinculo, new { IdUsuario = admin.IdUsuario });
 
-            return Ok(new
+        // Admin já existe -> garante vínculo ADMIN e opcionalmente reseta senha
+        if (reset)
+        {
+            var (hash, salt) = _passwords.HashPassword(senha);
+
+            const string updateSenha = @"
+UPDATE dbo.Usuario
+SET SenhaHash = @SenhaHash,
+    SenhaSalt = @SenhaSalt
+WHERE IdUsuario = @IdUsuario;
+";
+            await cn.ExecuteAsync(updateSenha, new
             {
-                message = "Admin já existia. Vínculo ao perfil ADMIN garantido.",
-                login = "admin",
-                idUsuario = admin.IdUsuario
+                IdUsuario = admin.IdUsuario,
+                SenhaHash = hash,
+                SenhaSalt = salt
             });
         }
+
+        await GarantirVinculoAdminAsync(cn, admin.IdUsuario);
+
+        return Ok(new
+        {
+            message = reset
+                ? "Admin já existia. Senha foi resetada e vínculo ao perfil ADMIN garantido."
+                : "Admin já existia. Vínculo ao perfil ADMIN garantido.",
+            login = "admin",
+            senha = reset ? senha : null,
+            idUsuario = admin.IdUsuario
+        });
+    }
+
+    private static Task GarantirVinculoAdminAsync(System.Data.IDbConnection cn, int idUsuario)
+    {
+        const string sql = @"
+DECLARE @IdPerfilAdmin INT = (SELECT IdPerfil FROM dbo.Perfil WHERE Nome = 'ADMIN');
+IF NOT EXISTS (
+    SELECT 1 FROM dbo.UsuarioPerfil
+    WHERE IdUsuario = @IdUsuario AND IdPerfil = @IdPerfilAdmin
+)
+    INSERT INTO dbo.UsuarioPerfil (IdUsuario, IdPerfil)
+    VALUES (@IdUsuario, @IdPerfilAdmin);
+";
+        return cn.ExecuteAsync(sql, new { IdUsuario = idUsuario });
     }
 }

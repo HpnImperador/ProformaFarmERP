@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace ProformaFarm.Application.Common.Responses;
+namespace ProformaFarm.Application.Common;
 
 public sealed class ApiResponse<T>
 {
@@ -22,15 +22,20 @@ public sealed class ApiResponse<T>
             CorrelationId = correlationId ?? string.Empty
         };
 
-    public static ApiResponse<T> Fail(string message, string code = "ERROR", string? correlationId = null)
-        => new()
-        {
-            Success = false,
-            Code = code,
-            Message = message,
-            Data = default,
-            CorrelationId = correlationId ?? string.Empty
-        };
+    public static ApiResponse<T> Fail(
+    string message,
+    string code = "ERROR",
+    string? correlationId = null,
+    T? data = default
+) => new()
+{
+    Success = false,
+    Code = code,
+    Message = message,
+    Data = data,
+    CorrelationId = correlationId ?? string.Empty
+};
+
 }
 
 public static class ApiResponse

@@ -1,4 +1,6 @@
-﻿namespace ProformaFarm.Domain.Entities;
+﻿using System;
+
+namespace ProformaFarm.Domain.Entities;
 
 public sealed class RefreshTokenRecord
 {

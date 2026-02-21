@@ -1,19 +1,20 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using System;
 using System.Data;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
+using ProformaFarm.Application.Interfaces.Data;
 
 namespace ProformaFarm.Infrastructure.Data;
 
 public sealed class SqlConnectionFactory : ISqlConnectionFactory
 {
-    private readonly string _connString;
+    private readonly string _connectionString;
 
-    public SqlConnectionFactory(IConfiguration configuration)
+    public SqlConnectionFactory(string connectionString)
     {
-        _connString = configuration.GetConnectionString("ProformaFarm")
-            ?? throw new InvalidOperationException("ConnectionString 'ProformaFarm' não encontrada.");
+        _connectionString = connectionString
+            ?? throw new ArgumentNullException(nameof(connectionString));
     }
 
     public IDbConnection CreateConnection()
-        => new SqlConnection(_connString);
+        => new SqlConnection(_connectionString);
 }

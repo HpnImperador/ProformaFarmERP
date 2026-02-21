@@ -1,6 +1,8 @@
 <Solution>
+  <Project Path="ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj" Id="fc41d6b1-1e2e-4d59-a81f-d20149955149" />
   <Project Path="ProformaFarm.Application/ProformaFarm.Application.csproj" />
   <Project Path="ProformaFarm.Domain/ProformaFarm.Domain.csproj" />
   <Project Path="ProformaFarm.Infrastructure/ProformaFarm.Infrastructure.csproj" />
+  <Project Path="ProformaFarm.IntegrationTests/ProformaFarm.IntegrationTests.csproj" />
   <Project Path="ProformaFarm/ProformaFarm.csproj" />
 </Solution>
