@@ -22,7 +22,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // -------------------------
-// Config
+// Config *-*-*-*-
 // -------------------------
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
