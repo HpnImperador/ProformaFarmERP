@@ -575,3 +575,47 @@ Status:
 - filtros de execução validados localmente:
   - integração: 77 testes aprovados;
   - E2E: 2 testes aprovados.
+
+## 40) Pré-requisito World-Class: Domain Events + Outbox Pattern
+Foi concluído o incremento de infraestrutura transversal para eventos de domínio com garantia transacional e processamento assíncrono:
+
+- script idempotente de banco:
+  - `docs/sql/005_core_outbox.sql`
+- tabelas:
+  - `Core.OutboxEvent`
+  - `Core.OutboxProcessedEvent` (idempotência)
+  - `Core.OutboxHelloProbe` (prova de vida)
+- persistência do evento no Outbox dentro do `SaveChanges` com `OutboxSaveChangesInterceptor`.
+- processamento assíncrono por `OutboxProcessorHostedService` + `OutboxProcessor` com lock, retry e backoff.
+
+Regras consolidadas no incremento:
+- `OrganizacaoId` derivado de `OrgContext` e propagado ao evento;
+- atomicidade entre operação transacional e persistência do evento no Outbox;
+- idempotência por `EventId` + `HandlerName`;
+- observabilidade mínima com `EventId` e `CorrelationId` em logs.
+
+## 41) Hello Event (Prova de Vida do Pipeline)
+Antes de expandir para novos domínios/eventos, foi implementado e validado o cenário de prova de vida ponta a ponta:
+
+- comando transacional gera evento;
+- evento aparece no Outbox;
+- worker processa;
+- registro é marcado como processado.
+
+Endpoints adicionados para suporte operacional:
+- `POST /api/outbox/hello-event`
+- `POST /api/outbox/processar-agora`
+
+## 42) Qualidade (Outbox)
+Foram adicionados testes de integração dedicados em:
+
+- `ProformaFarm.Application.Tests/Integration/Outbox/OutboxPipelineEndpointTests.cs`
+
+Cenários cobertos:
+- persistência do evento no Outbox;
+- processamento bem-sucedido;
+- retry/backoff com falha simulada;
+- idempotência por `EventId`.
+
+Status:
+- suíte filtrada de Outbox executada com sucesso (4 aprovados).

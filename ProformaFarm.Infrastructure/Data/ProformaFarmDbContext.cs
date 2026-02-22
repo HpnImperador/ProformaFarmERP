@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using ProformaFarm.Domain.Entities;
+using ProformaFarm.Infrastructure.Outbox;
 
 namespace ProformaFarm.Infrastructure.Data;
 
@@ -22,6 +23,8 @@ public class ProformaFarmDbContext : DbContext
     public DbSet<Estoque> Estoques => Set<Estoque>();
     public DbSet<MovimentacaoEstoque> MovimentacoesEstoque => Set<MovimentacaoEstoque>();
     public DbSet<ReservaEstoque> ReservasEstoque => Set<ReservaEstoque>();
+    public DbSet<OutboxHelloProbe> OutboxHelloProbes => Set<OutboxHelloProbe>();
+    public DbSet<OutboxEventEntity> OutboxEvents => Set<OutboxEventEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -266,6 +269,23 @@ public class ProformaFarmDbContext : DbContext
                 .HasForeignKey(x => x.IdLote)
                 .OnDelete(DeleteBehavior.Restrict)
                 .IsRequired(false);
+        });
+
+        modelBuilder.Entity<OutboxHelloProbe>(entity =>
+        {
+            entity.ToTable("OutboxHelloProbe", "Core").HasKey(x => x.IdOutboxHelloProbe);
+            entity.Property(x => x.NomeEvento).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.CriadoEmUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+        });
+
+        modelBuilder.Entity<OutboxEventEntity>(entity =>
+        {
+            entity.ToTable("OutboxEvent", "Core").HasKey(x => x.Id);
+            entity.Property(x => x.EventType).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.Payload).IsRequired();
+            entity.Property(x => x.LastError).HasMaxLength(2000);
+            entity.HasIndex(x => new { x.Status, x.NextAttemptUtc, x.OccurredOnUtc })
+                .HasDatabaseName("IX_Core_OutboxEvent_Status_NextAttemptUtc");
         });
     }
 }

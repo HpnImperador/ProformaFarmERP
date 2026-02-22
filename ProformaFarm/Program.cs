@@ -1,22 +1,28 @@
 ﻿using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+using ProformaFarm.API.Infrastructure.Correlation;
 using ProformaFarm.API.Filters;
 using ProformaFarm.Application.Interfaces.Auth;
+using ProformaFarm.Application.Interfaces.Correlation;
 using ProformaFarm.Application.Interfaces.Context;
 using ProformaFarm.Application.Interfaces.Data;
 using ProformaFarm.Application.Interfaces.Export;
+using ProformaFarm.Application.Interfaces.Outbox;
 using ProformaFarm.Application.Options;
 using ProformaFarm.Application.Services.Auth;
 using ProformaFarm.Application.Services.Export;
 using ProformaFarm.Application.Services.Security;
 using ProformaFarm.Infrastructure.Context;
 using ProformaFarm.Infrastructure.Data;
+using ProformaFarm.Infrastructure.Outbox;
+using ProformaFarm.Infrastructure.Outbox.Handlers;
 using ProformaFarm.Infrastructure.Repositories.Auth;
 using ProformaFarm.Middlewares;
 using System;
@@ -35,6 +41,13 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICsvExportService, CsvExportService>();
 builder.Services.AddScoped<IPdfExportService, PdfExportService>();
+builder.Services.AddScoped<OutboxSaveChangesInterceptor>();
+builder.Services.AddScoped<IOutboxHelloService, OutboxHelloService>();
+builder.Services.AddSingleton<IOutboxProcessor, OutboxProcessor>();
+builder.Services.AddHostedService<OutboxProcessorHostedService>();
+builder.Services.AddSingleton<ICorrelationIdAccessor, HttpCorrelationIdAccessor>();
+builder.Services.AddSingleton<IOutboxEventHandler, HelloOutboxDomainEventHandler>();
+builder.Services.Configure<OutboxProcessingOptions>(builder.Configuration.GetSection(OutboxProcessingOptions.SectionName));
 
 var connectionString =
     builder.Configuration.GetConnectionString("DefaultConnection")
@@ -43,6 +56,12 @@ var connectionString =
 builder.Services.AddSingleton<ISqlConnectionFactory>(
     new SqlConnectionFactory(connectionString)
 );
+
+builder.Services.AddDbContext<ProformaFarmDbContext>((sp, options) =>
+{
+    options.UseSqlServer(connectionString);
+    options.AddInterceptors(sp.GetRequiredService<OutboxSaveChangesInterceptor>());
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IOrgContext, OrgContext>();
 
@@ -196,5 +215,6 @@ namespace ProformaFarm
     {
     }
 }
+
 
 

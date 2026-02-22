@@ -1,4 +1,4 @@
-# ProformaFarm ERP
+﻿# ProformaFarm ERP
 
 Documento de apresentacao institucional e tecnica do projeto ProformaFarm ERP.
 Este arquivo e a referencia de alto nivel para stakeholders, times tecnicos e futuras apresentacoes oficiais.
@@ -112,8 +112,8 @@ Padrao aplicado:
 - painel web inicial com login, consultas de Organizacao/Estoque e exportacoes CSV/PDF para validacao funcional em navegador.
 - painel evoluido com cliente modular para consultas operacionais e visualizacao tabular de estoque.
 - painel com operacoes transacionais de estoque e reservas para validacao funcional end-to-end.
-- contratos de integração painel/API cobertos por testes para `ApiResponse` e headers `X-Export-*`.
-- pipeline CI/CD com estágios de `build`, testes de integração e E2E Playwright do painel, com artefatos de execução.
+- contratos de integraÃ§Ã£o painel/API cobertos por testes para `ApiResponse` e headers `X-Export-*`.
+- pipeline CI/CD com estÃ¡gios de `build`, testes de integraÃ§Ã£o e E2E Playwright do painel, com artefatos de execuÃ§Ã£o.
 
 ## 5) Indicadores de Progresso (KPIs)
 
@@ -176,7 +176,23 @@ Sempre que houver incremento relevante:
 2. manter detalhes tecnicos e trilha de implementacao em `docs/RESUMO_TECNICO_EVOLUCAO_PROFORMAFARMERP.md`;
 3. garantir consistencia entre ambos os documentos.
 
-## 9) Referencias complementares
+
+### 4.4 Incremento Atual: Outbox + Domain Events
+
+Foi concluída a primeira etapa de eventos de domínio com padrão Outbox, como pré-requisito para evolução de integrações enterprise:
+
+- persistência transacional de eventos no mesmo `SaveChanges` da operação de negócio;
+- processamento assíncrono com `BackgroundService`, lock, retry e backoff;
+- idempotência por `EventId` + `HandlerName`;
+- prova de vida validada (`Hello Event`) com processamento ponta a ponta.
+
+Validação técnica concluída:
+- testes de integração de Outbox executados com sucesso (4/4).
+
+Referências:
+- `docs/sql/005_core_outbox.sql`
+- `docs/architecture/outbox-implementation-notes.md`
+
 
 - `docs/RESUMO_TECNICO_EVOLUCAO_PROFORMAFARMERP.md`
 - `docs/AVALIACAO_ARQUITETURAL_CONSOLIDADA_PROFORMAFARMERP.md`
@@ -188,3 +204,4 @@ Sempre que houver incremento relevante:
 - `docs/sql/002_seed_estrutura_organizacional.sql`
 - `docs/sql/003_idx_lotacaousuario_orgcontext.sql`
 - `docs/sql/004_estoque_basico.sql`
+
