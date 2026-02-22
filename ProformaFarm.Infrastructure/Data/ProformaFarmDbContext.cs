@@ -17,6 +17,11 @@ public class ProformaFarmDbContext : DbContext
     public DbSet<UnidadeCentroCusto> UnidadeCentroCustos => Set<UnidadeCentroCusto>();
     public DbSet<Cargo> Cargos => Set<Cargo>();
     public DbSet<LotacaoUsuario> LotacoesUsuario => Set<LotacaoUsuario>();
+    public DbSet<Produto> Produtos => Set<Produto>();
+    public DbSet<Lote> Lotes => Set<Lote>();
+    public DbSet<Estoque> Estoques => Set<Estoque>();
+    public DbSet<MovimentacaoEstoque> MovimentacoesEstoque => Set<MovimentacaoEstoque>();
+    public DbSet<ReservaEstoque> ReservasEstoque => Set<ReservaEstoque>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -129,6 +134,136 @@ public class ProformaFarmDbContext : DbContext
                 .HasOne<Cargo>()
                 .WithMany()
                 .HasForeignKey(x => x.IdCargo)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
+        });
+
+        modelBuilder.Entity<Produto>(entity =>
+        {
+            entity.ToTable("Produto").HasKey(x => x.IdProduto);
+            entity.Property(x => x.Codigo).HasMaxLength(50).IsRequired();
+            entity.Property(x => x.Nome).HasMaxLength(200).IsRequired();
+            entity.HasIndex(x => new { x.IdOrganizacao, x.Codigo }).IsUnique();
+
+            entity
+                .HasOne<Organizacao>()
+                .WithMany()
+                .HasForeignKey(x => x.IdOrganizacao)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Lote>(entity =>
+        {
+            entity.ToTable("Lote").HasKey(x => x.IdLote);
+            entity.Property(x => x.NumeroLote).HasMaxLength(60).IsRequired();
+            entity.HasIndex(x => new { x.IdOrganizacao, x.IdProduto, x.NumeroLote }).IsUnique();
+
+            entity
+                .HasOne<Organizacao>()
+                .WithMany()
+                .HasForeignKey(x => x.IdOrganizacao)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<Produto>()
+                .WithMany()
+                .HasForeignKey(x => x.IdProduto)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Estoque>(entity =>
+        {
+            entity.ToTable("Estoque").HasKey(x => x.IdEstoque);
+            entity.HasIndex(x => new { x.IdOrganizacao, x.IdUnidadeOrganizacional, x.IdProduto, x.IdLote }).IsUnique();
+
+            entity
+                .HasOne<Organizacao>()
+                .WithMany()
+                .HasForeignKey(x => x.IdOrganizacao)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<UnidadeOrganizacional>()
+                .WithMany()
+                .HasForeignKey(x => x.IdUnidadeOrganizacional)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<Produto>()
+                .WithMany()
+                .HasForeignKey(x => x.IdProduto)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<Lote>()
+                .WithMany()
+                .HasForeignKey(x => x.IdLote)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
+        });
+
+        modelBuilder.Entity<MovimentacaoEstoque>(entity =>
+        {
+            entity.ToTable("MovimentacaoEstoque").HasKey(x => x.IdMovimentacaoEstoque);
+            entity.Property(x => x.TipoMovimento).HasMaxLength(30).IsRequired();
+            entity.Property(x => x.DocumentoReferencia).HasMaxLength(80);
+            entity.HasIndex(x => new { x.IdOrganizacao, x.IdUnidadeOrganizacional, x.DataMovimento });
+
+            entity
+                .HasOne<Organizacao>()
+                .WithMany()
+                .HasForeignKey(x => x.IdOrganizacao)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<UnidadeOrganizacional>()
+                .WithMany()
+                .HasForeignKey(x => x.IdUnidadeOrganizacional)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<Produto>()
+                .WithMany()
+                .HasForeignKey(x => x.IdProduto)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<Lote>()
+                .WithMany()
+                .HasForeignKey(x => x.IdLote)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
+        });
+
+        modelBuilder.Entity<ReservaEstoque>(entity =>
+        {
+            entity.ToTable("ReservaEstoque").HasKey(x => x.IdReservaEstoque);
+            entity.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            entity.Property(x => x.DocumentoReferencia).HasMaxLength(80);
+            entity.HasIndex(x => new { x.IdOrganizacao, x.Status, x.ExpiraEmUtc });
+
+            entity
+                .HasOne<Organizacao>()
+                .WithMany()
+                .HasForeignKey(x => x.IdOrganizacao)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<UnidadeOrganizacional>()
+                .WithMany()
+                .HasForeignKey(x => x.IdUnidadeOrganizacional)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<Produto>()
+                .WithMany()
+                .HasForeignKey(x => x.IdProduto)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity
+                .HasOne<Lote>()
+                .WithMany()
+                .HasForeignKey(x => x.IdLote)
                 .OnDelete(DeleteBehavior.Restrict)
                 .IsRequired(false);
         });

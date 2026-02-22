@@ -8,10 +8,14 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using ProformaFarm.API.Filters;
 using ProformaFarm.Application.Interfaces.Auth;
+using ProformaFarm.Application.Interfaces.Context;
 using ProformaFarm.Application.Interfaces.Data;
+using ProformaFarm.Application.Interfaces.Export;
 using ProformaFarm.Application.Options;
 using ProformaFarm.Application.Services.Auth;
+using ProformaFarm.Application.Services.Export;
 using ProformaFarm.Application.Services.Security;
+using ProformaFarm.Infrastructure.Context;
 using ProformaFarm.Infrastructure.Data;
 using ProformaFarm.Infrastructure.Repositories.Auth;
 using ProformaFarm.Middlewares;
@@ -29,6 +33,7 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptio
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICsvExportService, CsvExportService>();
 
 var connectionString =
     builder.Configuration.GetConnectionString("DefaultConnection")
@@ -37,6 +42,8 @@ var connectionString =
 builder.Services.AddSingleton<ISqlConnectionFactory>(
     new SqlConnectionFactory(connectionString)
 );
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IOrgContext, OrgContext>();
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 
@@ -162,6 +169,7 @@ if (!app.Environment.IsEnvironment("Testing"))
 
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseAuthentication();
+app.UseMiddleware<OrgContextEnforcementMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 
