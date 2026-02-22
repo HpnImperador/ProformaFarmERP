@@ -35,6 +35,14 @@ Nao e apenas um sistema operacional de farmacia. O objetivo e consolidar uma pla
 
 - Modular Monolith Evolutivo.
 
+### Escopo de produto (oficial)
+
+- O ProformaFarmERP **nao** e um produto API-only.
+- O escopo oficial contempla tres camadas integradas:
+  - API de dominio e integracao;
+  - painel backend (retaguarda administrativa);
+  - frontend de operacao omnichannel.
+
 ### Principios
 
 - separacao clara de dominios;
@@ -81,6 +89,13 @@ Status de referencia desta versao do documento:
 - `GET /api/estoque/reservas/exportar-csv`
 - `GET /api/estoque/movimentacoes/exportar-csv`
 
+### 4.2.1 Exportacao PDF piloto implementada
+
+- `GET /api/estoque/saldos/exportar-pdf`
+- `GET /api/estoque/reservas/exportar-pdf`
+- `GET /api/estoque/movimentacoes/exportar-pdf`
+- Motor de renderizacao: `QuestPDF` (layout paginado com tabela).
+
 Padrao aplicado:
 
 - UTF-8 BOM para compatibilidade com planilhas;
@@ -94,8 +109,38 @@ Padrao aplicado:
 - seeds de homologacao disponiveis;
 - endpoints principais funcionando com login real;
 - testes de integracao executando com sucesso para incrementos recentes.
+- painel web inicial com login, consultas de Organizacao/Estoque e exportacoes CSV/PDF para validacao funcional em navegador.
+- painel evoluido com cliente modular para consultas operacionais e visualizacao tabular de estoque.
 
-## 5) Roadmap executivo (macro)
+## 5) Indicadores de Progresso (KPIs)
+
+Data de referencia desta fotografia: **22 de fevereiro de 2026**.
+
+| KPI | Objetivo | Status atual |
+|---|---|---|
+| Cobertura de dominios core implantados | Consolidar base Organizacao + Estoque para evolucao dos modulos transacionais | **Em andamento (base pronta e operacional)** |
+| Scripts SQL idempotentes aplicados | Garantir reproducao de ambiente sem retrabalho manual | **Concluido para blocos atuais (001-004)** |
+| Endpoints de estoque com autenticacao e OrgContext | Garantir seguranca e escopo organizacional em runtime | **Concluido no bloco atual** |
+| Endpoints com exportacao CSV operacional | Habilitar extracao rapida para operacao e analise | **Concluido para saldos, reservas ativas, reservas historico e movimentacoes** |
+| Testes de integracao dos incrementos recentes | Reduzir regressao em evolucoes incrementais | **Concluido (suites recentes verdes)** |
+| Padronizacao tecnica de exportacao | Reduzir duplicacao e facilitar reuso em novos dominios | **Concluido neste incremento (CsvExportService)** |
+| Prontidao para proximo modulo | Avancar para incremento de dominio com base estavel | **Pronto para proxima frente funcional** |
+
+### 5.1 Leitura executiva dos KPIs
+
+- O projeto saiu da fase de base arquitetural para uma fase de crescimento funcional com governanca.
+- O risco de regressao nos fluxos entregues esta controlado por testes de integracao e padrao de API.
+- A padronizacao de exportacao CSV reduz custo de evolucao para Comercial/Fiscal.
+
+### 5.2 Acordo de padronizacao de exportacoes
+
+- CSV: todos os novos dominios devem adotar `ICsvExportService` como padrao unico.
+- PDF: evolucao sera incremental, iniciando por POC tecnica e template padrao.
+- Referencia tecnica oficial: `docs/ESTRATEGIA_EXPORTACOES_CSV_PDF.md`
+- Contrato padrao de exportacao deve cobrir API + painel backend + frontend (headers de metadados + nome de arquivo padrao).
+- Contrato padrao ja aplicado no piloto PDF para manter comportamento consistente entre formatos.
+
+## 6) Roadmap executivo (macro)
 
 ### Fase atual (em andamento)
 
@@ -112,7 +157,7 @@ Padrao aplicado:
 3. governanca:
    - BI, trilha de auditoria avancada, controladoria.
 
-## 6) Como este documento sera usado
+## 7) Como este documento sera usado
 
 Este `README.md` deve ser a camada de comunicacao executiva do projeto:
 
@@ -120,7 +165,7 @@ Este `README.md` deve ser a camada de comunicacao executiva do projeto:
 - base para apresentacao institucional;
 - referencia de status para gestao.
 
-## 7) Politica de atualizacao
+## 8) Politica de atualizacao
 
 Sempre que houver incremento relevante:
 
@@ -128,12 +173,13 @@ Sempre que houver incremento relevante:
 2. manter detalhes tecnicos e trilha de implementacao em `docs/RESUMO_TECNICO_EVOLUCAO_PROFORMAFARMERP.md`;
 3. garantir consistencia entre ambos os documentos.
 
-## 8) Referencias complementares
+## 9) Referencias complementares
 
 - `docs/RESUMO_TECNICO_EVOLUCAO_PROFORMAFARMERP.md`
 - `docs/AVALIACAO_ARQUITETURAL_CONSOLIDADA_PROFORMAFARMERP.md`
 - `docs/PROFORMA_MASTER_ARCH.md`
 - `docs/DOMAINS_MAP.md`
+- `docs/ESTRATEGIA_EXPORTACOES_CSV_PDF.md`
 - `docs/INDICES_ESTRUTURA_ORGANIZACIONAL.md`
 - `docs/sql/001_estrutura_organizacional.sql`
 - `docs/sql/002_seed_estrutura_organizacional.sql`
