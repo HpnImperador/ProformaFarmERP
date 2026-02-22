@@ -34,6 +34,7 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptio
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICsvExportService, CsvExportService>();
+builder.Services.AddScoped<IPdfExportService, PdfExportService>();
 
 var connectionString =
     builder.Configuration.GetConnectionString("DefaultConnection")
@@ -157,6 +158,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Exception middleware primeiro (governanÃ§a global)
 

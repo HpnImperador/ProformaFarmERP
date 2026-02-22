@@ -10,11 +10,11 @@ using Xunit;
 
 namespace ProformaFarm.Application.Tests.Integration.Estoque;
 
-public sealed class EstoqueReservasAtivasExportCsvEndpointTests : IClassFixture<CustomWebApplicationFactory>
+public sealed class EstoqueReservasExportPdfEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly CustomWebApplicationFactory _factory;
 
-    public EstoqueReservasAtivasExportCsvEndpointTests(CustomWebApplicationFactory factory)
+    public EstoqueReservasExportPdfEndpointTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
     }
@@ -24,33 +24,32 @@ public sealed class EstoqueReservasAtivasExportCsvEndpointTests : IClassFixture<
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api/estoque/reservas/ativas/exportar-csv");
+        var response = await client.GetAsync("/api/estoque/reservas/exportar-pdf");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task Com_token_deve_retornar_csv_com_cabecalho_e_dados()
+    public async Task Com_token_deve_retornar_pdf_com_headers_padrao()
     {
         var setup = await EstoqueTestDataSetup.EnsureAsync(_factory);
         using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
 
-        var response = await client.GetAsync($"/api/estoque/reservas/ativas/exportar-csv?idOrganizacao={setup.IdOrganizacao}&idProduto={setup.IdProduto}&status=ATIVA&limite=100");
+        var response = await client.GetAsync($"/api/estoque/reservas/exportar-pdf?idOrganizacao={setup.IdOrganizacao}&idProduto={setup.IdProduto}&limite=100");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("text/csv", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("application/pdf", response.Content.Headers.ContentType?.MediaType);
         Assert.NotNull(response.Content.Headers.ContentDisposition);
+
         Assert.True(response.Headers.Contains("X-Export-Format"));
         Assert.True(response.Headers.Contains("X-Export-Resource"));
         Assert.True(response.Headers.Contains("X-Export-GeneratedAtUtc"));
         Assert.True(response.Headers.Contains("X-Export-FileName"));
-        Assert.Contains("csv", string.Join(",", response.Headers.GetValues("X-Export-Format")));
-        Assert.Contains("reservas_ativas", string.Join(",", response.Headers.GetValues("X-Export-Resource")));
+        Assert.Contains("pdf", string.Join(",", response.Headers.GetValues("X-Export-Format")));
+        Assert.Contains("reservas", string.Join(",", response.Headers.GetValues("X-Export-Resource")));
 
-        var csv = await response.Content.ReadAsStringAsync();
-        Assert.Contains("IdReservaEstoque,IdOrganizacao", csv);
-        Assert.Contains(setup.CodigoProduto, csv);
-        Assert.Contains("ATIVA", csv);
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        Assert.True(bytes.Length > 0);
     }
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync(string login, string senha)

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProformaFarm ERP</title>
+  <style>
+    :root {
+      --bg: #f3f6f9;
+      --ink: #0f1b2d;
+      --muted: #5b6b7f;
+      --brand: #0b6bcb;
+      --brand-2: #0aa39a;
+      --card: #ffffff;
+      --line: #d8e0ea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background:
+        radial-gradient(1200px 500px at 90% -10%, #d9f4ff 0%, transparent 60%),
+        radial-gradient(900px 400px at -10% 120%, #dff9ee 0%, transparent 60%),
+        var(--bg);
+      color: var(--ink);
+    }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 50px; }
+    .top {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 26px;
+    }
+    .badge {
+      font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+      color: #ffffff; background: linear-gradient(90deg, var(--brand), var(--brand-2));
+      padding: 6px 10px; border-radius: 999px;
+    }
+    .hero {
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 24px; box-shadow: 0 14px 40px rgba(16, 28, 46, 0.08);
+    }
+    h1 { margin: 0 0 10px; font-size: 34px; line-height: 1.12; }
+    p { margin: 0; color: var(--muted); max-width: 860px; }
+    .grid {
+      margin-top: 22px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 16px; min-height: 150px;
+    }
+    .card h3 { margin: 0 0 8px; font-size: 17px; }
+    .linkbar { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      display: inline-block; text-decoration: none; color: #fff;
+      background: var(--brand); border: 0; border-radius: 10px;
+      padding: 11px 14px; font-weight: 600;
+    }
+    .btn.alt { background: #1e2b3d; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="badge">ProformaFarm ERP Platform</div>
+    </div>
+
+    <section class="hero">
+      <h1>Plataforma ERP Farmaceutica Omnichannel</h1>
+      <p>
+        Base consolidada para operacao multiempresa com contexto organizacional, estoque transacional,
+        exportacoes CSV/PDF padronizadas e trilha evolutiva para retaguarda administrativa completa.
+      </p>
+      <div class="linkbar">
+        <a class="btn" href="/painel/">Abrir Painel Backend</a>
+        <a class="btn alt" href="/swagger">Abrir Swagger</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h3>Organizacao</h3>
+        <p>Estrutura, arvore e contexto em runtime com enforcement de escopo por organizacao.</p>
+      </article>
+      <article class="card">
+        <h3>Estoque</h3>
+        <p>Saldos, reservas e movimentacoes com regras operacionais e rastreabilidade por lote.</p>
+      </article>
+      <article class="card">
+        <h3>Exportacoes</h3>
+        <p>CSV e PDF com contrato unico de metadados para backend e frontend.</p>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

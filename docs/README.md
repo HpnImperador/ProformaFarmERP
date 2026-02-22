@@ -81,6 +81,13 @@ Status de referencia desta versao do documento:
 - `GET /api/estoque/reservas/exportar-csv`
 - `GET /api/estoque/movimentacoes/exportar-csv`
 
+### 4.2.1 Exportacao PDF piloto implementada
+
+- `GET /api/estoque/saldos/exportar-pdf`
+- `GET /api/estoque/reservas/exportar-pdf`
+- `GET /api/estoque/movimentacoes/exportar-pdf`
+- Motor de renderizacao: `QuestPDF` (layout paginado com tabela).
+
 Padrao aplicado:
 
 - UTF-8 BOM para compatibilidade com planilhas;
@@ -120,6 +127,8 @@ Data de referencia desta fotografia: **22 de fevereiro de 2026**.
 - CSV: todos os novos dominios devem adotar `ICsvExportService` como padrao unico.
 - PDF: evolucao sera incremental, iniciando por POC tecnica e template padrao.
 - Referencia tecnica oficial: `docs/ESTRATEGIA_EXPORTACOES_CSV_PDF.md`
+- Contrato padrao de exportacao deve cobrir API + painel backend + frontend (headers de metadados + nome de arquivo padrao).
+- Contrato padrao ja aplicado no piloto PDF para manter comportamento consistente entre formatos.
 
 ## 6) Roadmap executivo (macro)
 

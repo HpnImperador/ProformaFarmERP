@@ -40,6 +40,12 @@ public sealed class EstoqueReservasExportCsvEndpointTests : IClassFixture<Custom
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("text/csv", response.Content.Headers.ContentType?.MediaType);
         Assert.NotNull(response.Content.Headers.ContentDisposition);
+        Assert.True(response.Headers.Contains("X-Export-Format"));
+        Assert.True(response.Headers.Contains("X-Export-Resource"));
+        Assert.True(response.Headers.Contains("X-Export-GeneratedAtUtc"));
+        Assert.True(response.Headers.Contains("X-Export-FileName"));
+        Assert.Contains("csv", string.Join(",", response.Headers.GetValues("X-Export-Format")));
+        Assert.Contains("reservas", string.Join(",", response.Headers.GetValues("X-Export-Resource")));
 
         var csv = await response.Content.ReadAsStringAsync();
         Assert.Contains("IdReservaEstoque,IdOrganizacao", csv);

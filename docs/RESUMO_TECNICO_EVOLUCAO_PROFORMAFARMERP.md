@@ -334,3 +334,92 @@ O `docs/README.md` foi atualizado com:
 
 - secao de acordo de padronizacao de exportacoes;
 - referencia oficial para a estrategia CSV/PDF.
+
+## 24) Contrato Unificado de Exportacao (API + Backend + Frontend)
+Foi aplicado contrato padrao de resposta para exportacoes CSV no `EstoqueController` com metadados em headers:
+
+- `X-Export-Format`
+- `X-Export-Resource`
+- `X-Export-GeneratedAtUtc`
+- `X-Export-FileName`
+- `Access-Control-Expose-Headers` com exposicao dos metadados de exportacao
+
+Objetivo:
+- habilitar consumo consistente no painel backend e frontend sem logica ad-hoc por endpoint.
+
+## 25) Qualidade (Contrato de Headers de Exportacao)
+Os testes de exportacao CSV foram ampliados para validar o contrato de headers:
+
+- `EstoqueSaldosExportCsvEndpointTests`
+- `EstoqueReservasAtivasExportCsvEndpointTests`
+- `EstoqueReservasExportCsvEndpointTests`
+- `EstoqueMovimentacoesExportCsvEndpointTests`
+
+Status:
+- suite filtrada de exportacoes CSV executada com sucesso (9 aprovados).
+
+## 26) POC PDF (Estoque)
+Foi implementado o primeiro incremento de exportacao PDF no dominio de estoque:
+
+- Interface: `IPdfExportService`
+- Implementacao: `PdfExportService`
+- Registro em DI no `Program.cs`
+- Endpoint piloto:
+  - `GET /api/estoque/saldos/exportar-pdf`
+
+Caracteristicas:
+- filtros equivalentes ao endpoint de saldos;
+- protecao por autenticacao + OrgContext;
+- retorno em `application/pdf`;
+- metadados de exportacao padronizados via headers `X-Export-*`.
+
+## 27) Qualidade (PDF)
+Foi adicionada cobertura de integracao para o endpoint piloto:
+
+- `EstoqueSaldosExportPdfEndpointTests`
+  - `401` sem token
+  - `200` com tipo de arquivo PDF e headers de metadados
+
+Status:
+- suite filtrada de exportacoes (CSV + PDF piloto) executada com sucesso (11 aprovados).
+
+## 28) Expansao PDF (Reservas e Movimentacoes)
+A POC de PDF foi expandida para os demais fluxos operacionais de estoque:
+
+- `GET /api/estoque/reservas/exportar-pdf`
+- `GET /api/estoque/movimentacoes/exportar-pdf`
+
+Padrao mantido:
+- filtros operacionais equivalentes aos endpoints CSV;
+- autenticacao + OrgContext;
+- contrato de metadados `X-Export-*` e CORS expose headers.
+
+## 29) Qualidade (PDF Expandido)
+Foram adicionados testes de integracao:
+
+- `EstoqueReservasExportPdfEndpointTests`
+- `EstoqueMovimentacoesExportPdfEndpointTests`
+
+Cenarios cobertos:
+- `401` sem token;
+- `200` com `application/pdf`;
+- validacao do contrato de headers padronizados.
+
+Status:
+- suite filtrada de PDF executada com sucesso (6 aprovados).
+
+## 30) Evolucao do Motor PDF (QuestPDF)
+O `PdfExportService` foi evoluido para usar motor dedicado de renderizacao PDF:
+
+- pacote adicionado: `QuestPDF` em `ProformaFarm.Application`
+- licenca de runtime configurada para uso comunitario (`LicenseType.Community`)
+- layout evoluido para:
+  - cabecalho com titulo e data/hora UTC de geracao;
+  - tabela com cabecalho visual e linhas de dados;
+  - suporte a quebra multipagina;
+  - rodape com paginacao (`Pagina X / Y`).
+
+Impacto tecnico:
+- removeu a geracao manual de bytes PDF;
+- aumentou legibilidade e consistencia visual dos relatorios;
+- estabeleceu base reutilizavel para PDFs de futuros dominios (Comercial/Fiscal).

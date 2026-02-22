@@ -26,6 +26,29 @@ A partir deste ponto, todo novo dominio deve reutilizar o padrao implementado co
    - numericos com cultura invariante;
    - escaping CSV centralizado via servico.
 
+### Contrato padrao de resposta (Backend + Frontend)
+
+Todo endpoint de exportacao deve retornar, alem do arquivo, os metadados abaixo:
+
+- `Content-Type`: `text/csv; charset=utf-8`
+- `Content-Disposition`: attachment com nome padrao do arquivo
+- `X-Export-Format`: `csv`
+- `X-Export-Resource`: recurso exportado (ex.: `saldos`, `reservas`, `movimentacoes`)
+- `X-Export-GeneratedAtUtc`: timestamp UTC de geracao (ISO-8601)
+- `X-Export-FileName`: nome final do arquivo
+- `Access-Control-Expose-Headers`: incluir os headers de exportacao para leitura no frontend
+
+Padrao de nome de arquivo:
+
+- `{recurso}_{yyyyMMdd_HHmmss}.csv`
+
+Uso no frontend/painel:
+
+1. Ler `X-Export-FileName` para rotulo no UI e download assistido.
+2. Exibir `X-Export-GeneratedAtUtc` como data/hora da geracao.
+3. Persistir filtros aplicados no estado da tela para auditoria operacional.
+4. Tratar respostas de validacao (`400`) e escopo (`403`) com mensagens orientadas ao usuario.
+
 ### Implementacao de referencia
 
 - Interface: `ProformaFarm.Application/Interfaces/Export/ICsvExportService.cs`
@@ -75,6 +98,26 @@ Motivos:
    - legibilidade em desktop e mobile.
 4. Padronizar template (cabecalho, rodape, tabela, metadados).
 5. Reutilizar em Comercial/Fiscal.
+
+## 3.1 Status da POC PDF (estoque)
+
+POC inicial implementada:
+
+- Endpoint piloto:
+  - `GET /api/estoque/saldos/exportar-pdf`
+  - `GET /api/estoque/reservas/exportar-pdf`
+  - `GET /api/estoque/movimentacoes/exportar-pdf`
+- Servico:
+  - `IPdfExportService` + `PdfExportService`
+  - engine dedicado: `QuestPDF`
+- Contrato de metadados de exportacao aplicado tambem no PDF:
+  - `X-Export-Format`
+  - `X-Export-Resource`
+  - `X-Export-GeneratedAtUtc`
+  - `X-Export-FileName`
+
+Resultado atual:
+- PDF com layout paginado e tabela (nao mais geracao manual de bytes PDF).
 
 ## 4) Criterios de pronto para PDF
 

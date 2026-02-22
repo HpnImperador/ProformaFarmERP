@@ -23,6 +23,7 @@ public sealed class EstoqueController : ControllerBase
     private readonly ISqlConnectionFactory _factory;
     private readonly IOrgContext _orgContext;
     private readonly ICsvExportService _csvExportService;
+    private readonly IPdfExportService _pdfExportService;
 
     private const string SaldoSql = @"
 SELECT
@@ -405,11 +406,13 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
     public EstoqueController(
         ISqlConnectionFactory factory,
         IOrgContext orgContext,
-        ICsvExportService csvExportService)
+        ICsvExportService csvExportService,
+        IPdfExportService pdfExportService)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _orgContext = orgContext ?? throw new ArgumentNullException(nameof(orgContext));
         _csvExportService = csvExportService ?? throw new ArgumentNullException(nameof(csvExportService));
+        _pdfExportService = pdfExportService ?? throw new ArgumentNullException(nameof(pdfExportService));
     }
 
     [HttpGet("saldos")]
@@ -504,9 +507,65 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             ("QuantidadeReservada", x => x.QuantidadeReservada),
             ("QuantidadeLiquida", x => x.QuantidadeLiquida)
         });
-        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv);
-        var fileName = $"saldos_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
-        return File(bytes, "text/csv; charset=utf-8", fileName);
+        return BuildCsvFileResult(csv, "saldos");
+    }
+
+    [HttpGet("saldos/exportar-pdf")]
+    public async Task<IActionResult> ExportarSaldosPdf(
+        [FromQuery] int? idOrganizacao = null,
+        [FromQuery] int? idUnidadeOrganizacional = null,
+        [FromQuery] int? idProduto = null,
+        [FromQuery] string? codigoProduto = null,
+        [FromQuery] int limite = 1000)
+    {
+        if (limite <= 0 || limite > 10000)
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                message: "Limite deve estar entre 1 e 10000.",
+                code: "VALIDATION_ERROR"));
+        }
+
+        var idOrganizacaoEfetiva = await ResolverOrganizacaoEfetivaAsync(idOrganizacao);
+        if (!idOrganizacaoEfetiva.HasValue)
+        {
+            return StatusCode(403, ApiResponse<object>.Fail(
+                message: "Contexto organizacional nao resolvido para o usuario.",
+                code: "ORG_CONTEXT_NOT_FOUND"));
+        }
+
+        using var cn = _factory.CreateConnection();
+        var itens = (await cn.QueryAsync<SaldoEstoqueItem>(
+            SaldoExportSql,
+            new
+            {
+                IdOrganizacao = idOrganizacaoEfetiva.Value,
+                IdUnidadeOrganizacional = idUnidadeOrganizacional,
+                IdProduto = idProduto,
+                CodigoProduto = string.IsNullOrWhiteSpace(codigoProduto) ? null : codigoProduto.Trim(),
+                Limite = limite
+            })).ToList();
+
+        foreach (var item in itens)
+            item.QuantidadeLiquida = item.QuantidadeDisponivel - item.QuantidadeReservada;
+
+        var rows = itens
+            .Select(x => (IReadOnlyList<string>)new[]
+            {
+                x.CodigoUnidade,
+                x.CodigoProduto,
+                x.NumeroLote ?? "-",
+                x.QuantidadeDisponivel.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                x.QuantidadeReservada.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                x.QuantidadeLiquida.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            })
+            .ToList();
+
+        var bytes = _pdfExportService.BuildSimpleReport(
+            title: $"Saldos de Estoque - Organizacao {idOrganizacaoEfetiva.Value}",
+            headers: new[] { "Unidade", "Produto", "Lote", "Disponivel", "Reservada", "Liquida" },
+            rows: rows);
+
+        return BuildPdfFileResult(bytes, "saldos");
     }
 
     [HttpGet("reservas/ativas")]
@@ -596,9 +655,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             ("Status", x => x.Status),
             ("DocumentoReferencia", x => x.DocumentoReferencia)
         });
-        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv);
-        var fileName = $"reservas_ativas_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
-        return File(bytes, "text/csv; charset=utf-8", fileName);
+        return BuildCsvFileResult(csv, "reservas_ativas");
     }
 
     [HttpGet("reservas")]
@@ -781,9 +838,76 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             ("Status", x => x.Status),
             ("DocumentoReferencia", x => x.DocumentoReferencia)
         });
-        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv);
-        var fileName = $"reservas_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
-        return File(bytes, "text/csv; charset=utf-8", fileName);
+        return BuildCsvFileResult(csv, "reservas");
+    }
+
+    [HttpGet("reservas/exportar-pdf")]
+    public async Task<IActionResult> ExportarReservasPdf(
+        [FromQuery] int? idOrganizacao = null,
+        [FromQuery] int? idUnidadeOrganizacional = null,
+        [FromQuery] int? idProduto = null,
+        [FromQuery] int? idLote = null,
+        [FromQuery] string? status = null,
+        [FromQuery] DateTime? dataDe = null,
+        [FromQuery] DateTime? dataAte = null,
+        [FromQuery] int limite = 1000)
+    {
+        if (limite <= 0 || limite > 10000)
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                message: "Limite deve estar entre 1 e 10000.",
+                code: "VALIDATION_ERROR"));
+        }
+
+        if (dataDe.HasValue && dataAte.HasValue && dataAte.Value < dataDe.Value)
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                message: "DataAte deve ser maior ou igual a DataDe.",
+                code: "VALIDATION_ERROR"));
+        }
+
+        var idOrganizacaoEfetiva = await ResolverOrganizacaoEfetivaAsync(idOrganizacao);
+        if (!idOrganizacaoEfetiva.HasValue)
+        {
+            return StatusCode(403, ApiResponse<object>.Fail(
+                message: "Contexto organizacional nao resolvido para o usuario.",
+                code: "ORG_CONTEXT_NOT_FOUND"));
+        }
+
+        using var cn = _factory.CreateConnection();
+        var itens = (await cn.QueryAsync<ReservaHistoricoItem>(
+            ReservaHistoricoExportSql,
+            new
+            {
+                IdOrganizacao = idOrganizacaoEfetiva.Value,
+                IdUnidadeOrganizacional = idUnidadeOrganizacional,
+                IdProduto = idProduto,
+                IdLote = idLote,
+                Status = string.IsNullOrWhiteSpace(status) ? null : status.Trim(),
+                DataDe = dataDe,
+                DataAte = dataAte,
+                Limite = limite
+            })).ToList();
+
+        var rows = itens
+            .Select(x => (IReadOnlyList<string>)new[]
+            {
+                x.CodigoUnidade,
+                x.CodigoProduto,
+                x.NumeroLote ?? "-",
+                x.Quantidade.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                x.Status,
+                x.ExpiraEmUtc.ToString("O"),
+                x.DocumentoReferencia ?? "-"
+            })
+            .ToList();
+
+        var bytes = _pdfExportService.BuildSimpleReport(
+            title: $"Historico de Reservas - Organizacao {idOrganizacaoEfetiva.Value}",
+            headers: new[] { "Unidade", "Produto", "Lote", "Quantidade", "Status", "ExpiraEmUtc", "Documento" },
+            rows: rows);
+
+        return BuildPdfFileResult(bytes, "reservas");
     }
 
     [HttpGet("movimentacoes")]
@@ -927,9 +1051,78 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             ("DocumentoReferencia", x => x.DocumentoReferencia),
             ("DataMovimento", x => x.DataMovimento)
         });
-        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv);
-        var fileName = $"movimentacoes_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
-        return File(bytes, "text/csv; charset=utf-8", fileName);
+        return BuildCsvFileResult(csv, "movimentacoes");
+    }
+
+    [HttpGet("movimentacoes/exportar-pdf")]
+    public async Task<IActionResult> ExportarMovimentacoesPdf(
+        [FromQuery] int? idOrganizacao = null,
+        [FromQuery] int? idUnidadeOrganizacional = null,
+        [FromQuery] int? idProduto = null,
+        [FromQuery] int? idLote = null,
+        [FromQuery] string? tipoMovimento = null,
+        [FromQuery] DateTime? dataDe = null,
+        [FromQuery] DateTime? dataAte = null,
+        [FromQuery] int limite = 1000)
+    {
+        if (limite <= 0 || limite > 10000)
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                message: "Limite deve estar entre 1 e 10000.",
+                code: "VALIDATION_ERROR"));
+        }
+
+        if (dataDe.HasValue && dataAte.HasValue && dataAte.Value < dataDe.Value)
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                message: "DataAte deve ser maior ou igual a DataDe.",
+                code: "VALIDATION_ERROR"));
+        }
+
+        var idOrganizacaoEfetiva = await ResolverOrganizacaoEfetivaAsync(idOrganizacao);
+        if (!idOrganizacaoEfetiva.HasValue)
+        {
+            return StatusCode(403, ApiResponse<object>.Fail(
+                message: "Contexto organizacional nao resolvido para o usuario.",
+                code: "ORG_CONTEXT_NOT_FOUND"));
+        }
+
+        var tipoNormalizado = string.IsNullOrWhiteSpace(tipoMovimento) ? null : tipoMovimento.Trim().ToUpperInvariant();
+
+        using var cn = _factory.CreateConnection();
+        var itens = (await cn.QueryAsync<MovimentacaoHistoricoItem>(
+            MovimentacaoHistoricoExportSql,
+            new
+            {
+                IdOrganizacao = idOrganizacaoEfetiva.Value,
+                IdUnidadeOrganizacional = idUnidadeOrganizacional,
+                IdProduto = idProduto,
+                IdLote = idLote,
+                TipoMovimento = tipoNormalizado,
+                DataDe = dataDe,
+                DataAte = dataAte,
+                Limite = limite
+            })).ToList();
+
+        var rows = itens
+            .Select(x => (IReadOnlyList<string>)new[]
+            {
+                x.CodigoUnidade,
+                x.CodigoProduto,
+                x.NumeroLote ?? "-",
+                x.TipoMovimento,
+                x.Quantidade.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                x.DataMovimento.ToString("O"),
+                x.DocumentoReferencia ?? "-"
+            })
+            .ToList();
+
+        var bytes = _pdfExportService.BuildSimpleReport(
+            title: $"Historico de Movimentacoes - Organizacao {idOrganizacaoEfetiva.Value}",
+            headers: new[] { "Unidade", "Produto", "Lote", "Tipo", "Quantidade", "DataMovimento", "Documento" },
+            rows: rows);
+
+        return BuildPdfFileResult(bytes, "movimentacoes");
     }
 
     [HttpPost("movimentacoes/entrada")]
@@ -1696,6 +1889,53 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             return idOrganizacao.Value;
 
         return await _orgContext.GetCurrentOrganizacaoIdAsync(HttpContext.RequestAborted);
+    }
+
+    private FileContentResult BuildCsvFileResult(string csv, string resource)
+    {
+        var generatedAtUtc = DateTime.UtcNow;
+        var fileName = $"{resource}_{generatedAtUtc:yyyyMMdd_HHmmss}.csv";
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv);
+
+        Response.Headers["X-Export-Format"] = "csv";
+        Response.Headers["X-Export-Resource"] = resource;
+        Response.Headers["X-Export-GeneratedAtUtc"] = generatedAtUtc.ToString("O");
+        Response.Headers["X-Export-FileName"] = fileName;
+        AppendExposedHeaders("Content-Disposition,X-Export-Format,X-Export-Resource,X-Export-GeneratedAtUtc,X-Export-FileName");
+
+        return File(bytes, "text/csv; charset=utf-8", fileName);
+    }
+
+    private FileContentResult BuildPdfFileResult(byte[] bytes, string resource)
+    {
+        var generatedAtUtc = DateTime.UtcNow;
+        var fileName = $"{resource}_{generatedAtUtc:yyyyMMdd_HHmmss}.pdf";
+
+        Response.Headers["X-Export-Format"] = "pdf";
+        Response.Headers["X-Export-Resource"] = resource;
+        Response.Headers["X-Export-GeneratedAtUtc"] = generatedAtUtc.ToString("O");
+        Response.Headers["X-Export-FileName"] = fileName;
+        AppendExposedHeaders("Content-Disposition,X-Export-Format,X-Export-Resource,X-Export-GeneratedAtUtc,X-Export-FileName");
+
+        return File(bytes, "application/pdf", fileName);
+    }
+
+    private void AppendExposedHeaders(string headersToExpose)
+    {
+        if (!Response.Headers.TryGetValue("Access-Control-Expose-Headers", out var existing))
+        {
+            Response.Headers["Access-Control-Expose-Headers"] = headersToExpose;
+            return;
+        }
+
+        var merged = existing.ToString();
+        foreach (var header in headersToExpose.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!merged.Contains(header, StringComparison.OrdinalIgnoreCase))
+                merged = string.IsNullOrWhiteSpace(merged) ? header : $"{merged},{header}";
+        }
+
+        Response.Headers["Access-Control-Expose-Headers"] = merged;
     }
 
     public sealed class SaldosEstoqueResponse
