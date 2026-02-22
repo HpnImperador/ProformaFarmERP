@@ -35,6 +35,14 @@ Nao e apenas um sistema operacional de farmacia. O objetivo e consolidar uma pla
 
 - Modular Monolith Evolutivo.
 
+### Escopo de produto (oficial)
+
+- O ProformaFarmERP **nao** e um produto API-only.
+- O escopo oficial contempla tres camadas integradas:
+  - API de dominio e integracao;
+  - painel backend (retaguarda administrativa);
+  - frontend de operacao omnichannel.
+
 ### Principios
 
 - separacao clara de dominios;
@@ -101,6 +109,11 @@ Padrao aplicado:
 - seeds de homologacao disponiveis;
 - endpoints principais funcionando com login real;
 - testes de integracao executando com sucesso para incrementos recentes.
+- painel web inicial com login, consultas de Organizacao/Estoque e exportacoes CSV/PDF para validacao funcional em navegador.
+- painel evoluido com cliente modular para consultas operacionais e visualizacao tabular de estoque.
+- painel com operacoes transacionais de estoque e reservas para validacao funcional end-to-end.
+- contratos de integração painel/API cobertos por testes para `ApiResponse` e headers `X-Export-*`.
+- pipeline CI/CD com estágios de `build`, testes de integração e E2E Playwright do painel, com artefatos de execução.
 
 ## 5) Indicadores de Progresso (KPIs)
 

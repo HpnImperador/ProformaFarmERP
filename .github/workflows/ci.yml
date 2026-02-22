@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore ProformaFarmERP.slnx
+
+      - name: Build
+        run: dotnet build ProformaFarmERP.slnx --configuration Release --no-restore
+
+  integration:
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore ProformaFarmERP.slnx
+
+      - name: Build
+        run: dotnet build ProformaFarmERP.slnx --configuration Release --no-restore
+
+      - name: Run Integration Tests (sem E2E)
+        run: >
+          dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj
+          --configuration Release
+          --no-build
+          --filter "FullyQualifiedName!~Integration.Painel.PainelBackendE2ePlaywrightTests"
+          --logger "trx;LogFileName=integration.trx"
+          --results-directory TestResults/integration
+
+      - name: Upload Integration Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: TestResults/integration
+
+  e2e:
+    runs-on: windows-latest
+    needs: integration
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore ProformaFarmERP.slnx
+
+      - name: Build
+        run: dotnet build ProformaFarmERP.slnx --configuration Release --no-restore
+
+      - name: Install Playwright Browser
+        shell: pwsh
+        run: ./ProformaFarm.Application.Tests/bin/Release/net8.0/playwright.ps1 install msedge
+
+      - name: Run E2E Tests (Playwright)
+        run: >
+          dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj
+          --configuration Release
+          --no-build
+          --filter "FullyQualifiedName~Integration.Painel.PainelBackendE2ePlaywrightTests"
+          --logger "trx;LogFileName=e2e.trx"
+          --results-directory TestResults/e2e
+
+      - name: Upload E2E Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: TestResults/e2e

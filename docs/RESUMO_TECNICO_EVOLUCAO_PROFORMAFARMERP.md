@@ -423,3 +423,155 @@ Impacto tecnico:
 - removeu a geracao manual de bytes PDF;
 - aumentou legibilidade e consistencia visual dos relatorios;
 - estabeleceu base reutilizavel para PDFs de futuros dominios (Comercial/Fiscal).
+
+## 31) Posicionamento de Plataforma (API + Painel + Frontend)
+Foi formalizado o posicionamento do ProformaFarmERP como plataforma completa, e nao apenas API:
+
+- API como camada de dominio/integracao;
+- painel backend como retaguarda administrativa;
+- frontend para operacao omnichannel.
+
+Estado atual:
+- backend e contratos de API em fase avancada de consolidacao;
+- painel web inicial publicado em `wwwroot/painel` para validacao funcional;
+- evolucao das interfaces seguira a mesma padronizacao de contratos, seguranca e observabilidade dos endpoints.
+
+## 32) Incremento de Painel Administrativo Inicial (Organizacao + Estoque)
+O painel web em `wwwroot/painel/index.html` foi evoluido para uma base administrativa funcional, com foco em validacao end-to-end do contrato de API:
+
+- autenticacao real via `POST /api/auth/login` com persistencia local de token;
+- consulta de organizacao:
+  - `GET /api/organizacao/contexto`
+  - `GET /api/organizacao/estrutura`
+  - `GET /api/organizacao/estrutura/arvore`
+- consulta operacional de estoque:
+  - `GET /api/estoque/saldos`
+  - `GET /api/estoque/reservas/ativas`
+  - `GET /api/estoque/movimentacoes`
+- exportacoes CSV/PDF com cliente HTTP unificado e leitura dos headers `X-Export-*`.
+
+Diretriz aplicada:
+- o mesmo contrato de integracao foi usado para retaguarda (painel) e frontend, reduzindo divergencias de comportamento entre canais.
+
+## 33) Modularizacao do Painel Web e Tabela Operacional
+O painel backend evoluiu de script unico para estrutura modular em `wwwroot/painel/js`:
+
+- `api-client.js`: cliente HTTP unificado (JSON + exportacao) com Bearer token;
+- `painel-organizacao.js`: fluxo de consultas de contexto, estrutura e arvore;
+- `painel-estoque.js`: consultas de estoque e exportacoes CSV/PDF;
+- `ui.js`: utilitarios de status, serializacao e renderizacao tabular;
+- `main.js`: composicao dos modulos e ciclo de autenticacao.
+
+Incremento funcional adicional:
+- consultas de estoque passaram a exibir tabela no painel para:
+  - `saldos`
+  - `reservas/ativas`
+  - `movimentacoes`
+
+Resultado:
+- reducao de acoplamento no frontend administrativo;
+- base preparada para crescimento por dominios sem concentrar logica em um unico arquivo.
+
+## 34) Painel Transacional de Estoque e Reservas
+Foi incorporado ao painel backend um bloco operacional transacional conectado aos endpoints reais:
+
+- movimentacoes:
+  - `POST /api/estoque/movimentacoes/entrada`
+  - `POST /api/estoque/movimentacoes/saida`
+  - `POST /api/estoque/movimentacoes/ajuste`
+- reservas:
+  - `POST /api/estoque/reservas`
+  - `POST /api/estoque/reservas/{id}/confirmar`
+  - `POST /api/estoque/reservas/{id}/cancelar`
+  - `POST /api/estoque/reservas/expirar`
+
+Implementacao no frontend administrativo:
+- novo modulo `wwwroot/painel/js/painel-transacoes.js`;
+- reaproveitamento do cliente unificado `api-client.js`;
+- refresh automatico da consulta de estoque apos operacao concluida.
+
+Impacto:
+- reduz tempo de validacao operacional de regras transacionais;
+- acelera homologacao funcional sem depender exclusivamente de Swagger.
+
+## 35) Testes de Integracao do Painel (Smoke)
+Foi adicionada cobertura de integracao para a camada web administrativa em:
+
+- `ProformaFarm.Application.Tests/Integration/Painel/PainelBackendSmokeTests.cs`
+
+Cenarios cobertos:
+- disponibilidade dos assets do painel (`/`, `/painel/`, `/painel/js/main.js`);
+- fluxo autenticado basico usado pelo painel (contexto organizacional, consulta de saldo e exportacao CSV);
+- validacao de endpoints transacionais consumidos pelo painel sem mutacao de estado (retornos `400` para payload invalido).
+
+Status:
+- suite `ProformaFarm.Application.Tests` executada com sucesso apos incremento (67 testes aprovados).
+
+## 36) Testes de Contrato Painel/API (ApiResponse + Headers de Exportação)
+Foi adicionada suíte de contrato para blindar a integração entre painel e API:
+
+- `ProformaFarm.Application.Tests/Integration/Painel/PainelContratoIntegracaoTests.cs`
+
+Cobertura implementada:
+- validação do envelope `ApiResponse` nos endpoints de leitura usados pelo painel:
+  - `GET /api/organizacao/contexto`
+  - `GET /api/estoque/saldos`
+  - `GET /api/estoque/reservas/ativas`
+  - `GET /api/estoque/movimentacoes`
+- validação de contrato de exportação para CSV e PDF por recurso:
+  - presença dos headers `X-Export-Format`, `X-Export-Resource`, `X-Export-GeneratedAtUtc`, `X-Export-FileName`
+  - consistência de valores (formato/recurso)
+  - verificação de `Access-Control-Expose-Headers` para consumo de frontend/painel.
+
+Status:
+- suíte `ProformaFarm.Application.Tests` executada com sucesso após incremento (77 testes aprovados).
+
+## 37) E2E Real de Navegador (Playwright) para o Painel
+Foi implementado teste E2E real em navegador para validar o fluxo ponta a ponta do painel:
+
+- pacote adicionado em testes: `Microsoft.Playwright`;
+- infraestrutura de host local para execução E2E: `ProformaFarm.Application.Tests/Common/PainelE2eAppHost.cs`;
+- teste E2E: `ProformaFarm.Application.Tests/Integration/Painel/PainelBackendE2ePlaywrightTests.cs`.
+
+Cenário validado:
+- abertura do painel em navegador real (Chromium/Edge headless);
+- autenticação via formulário do painel;
+- consulta de estoque com renderização de tabela;
+- exportação CSV com captura de download e validação de arquivo.
+
+Status:
+- teste E2E dedicado executado com sucesso;
+- suíte `ProformaFarm.Application.Tests` executada com sucesso após o incremento (78 testes aprovados).
+
+## 38) E2E Transacional no Painel (Entrada/Saída + Confirmação Visual)
+Foi adicionado o segundo cenário E2E de navegador para validação operacional transacional com retorno visual imediato no painel:
+
+- arquivo: `ProformaFarm.Application.Tests/Integration/Painel/PainelBackendE2ePlaywrightTests.cs`
+- cenário coberto:
+  - autenticação no painel;
+  - execução de movimentação de entrada via formulário;
+  - confirmação da atualização imediata na tabela de movimentações;
+  - execução de movimentação de saída via formulário;
+  - nova confirmação visual imediata na tabela.
+
+Status:
+- suíte E2E de painel (2 cenários Playwright) executada com sucesso.
+
+## 39) Governança de CI/CD para Build, Integração e E2E
+Foi implementado workflow de CI em GitHub Actions para execução em estágios:
+
+- arquivo: `.github/workflows/ci.yml`
+- estágios:
+  - `build`
+  - `integration` (sem os testes E2E de navegador)
+  - `e2e` (somente testes Playwright do painel)
+
+Capacidades adicionadas:
+- instalação de navegador para Playwright no job E2E;
+- upload de artefatos de teste (`trx`) em integração e E2E;
+- upload de artefatos E2E de falha/suporte (`trace`, `screenshot`, `video`) gerados em `TestResults/e2e`.
+
+Status:
+- filtros de execução validados localmente:
+  - integração: 77 testes aprovados;
+  - E2E: 2 testes aprovados.
