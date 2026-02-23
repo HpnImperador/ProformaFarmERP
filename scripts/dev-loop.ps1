@@ -120,8 +120,8 @@ function Assert-PostgresSafeMode {
         }
 
         $isHostAllowed = $false
-        foreach ($host in $Hosts) {
-            if ($targetHost.Equals($host, [System.StringComparison]::OrdinalIgnoreCase)) {
+        foreach ($allowedHost in $Hosts) {
+            if ($targetHost.Equals($allowedHost, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $isHostAllowed = $true
                 break
             }
