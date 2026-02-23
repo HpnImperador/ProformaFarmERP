@@ -145,3 +145,18 @@ Evidências mínimas para anexar no checklist:
 1. Console com snapshots pré/pós.
 2. Resultado `dotnet test` com suíte de Outbox verde.
 3. Confirmação de ausência de impacto em outros bancos do servidor compartilhado.
+
+### 9.1 Runner pronto para laboratório (com log de evidência)
+Também foi disponibilizado um script wrapper para execução com log automático:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/lab-validate-postgres-outbox-relay.ps1 `
+  -PostgresHost <ubuntu_server_ip> `
+  -PostgresDatabase proformafarm `
+  -PostgresUser <postgres_user> `
+  -PostgresPassword <postgres_password>
+```
+
+Saída esperada:
+- execução do `dev-loop` em modo de validação PostgreSQL;
+- arquivo de log em `logs/lab-postgres-outbox-relay-<timestamp>.log` para anexar no checklist.

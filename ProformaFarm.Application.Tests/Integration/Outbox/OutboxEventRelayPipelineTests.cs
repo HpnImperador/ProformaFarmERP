@@ -124,7 +124,8 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
             @"UPDATE Integration.IntegrationDeliveryLog
               SET AttemptCount = 4,
                   Status = 0,
-                  NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME())
+                  NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME()),
+                  LockedUntilUtc = NULL
               WHERE IdIntegrationDeliveryLog = @Id;",
             new { Id = current.IdIntegrationDeliveryLog }));
 

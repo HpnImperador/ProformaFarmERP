@@ -899,3 +899,25 @@ Foi adicionado modo dedicado de validação operacional no laboratório para o p
 
 Objetivo:
 - garantir evidência auditável da execução do pipeline `Outbox -> Relay` no PostgreSQL de laboratório sem risco para outros bancos do mesmo servidor.
+
+## 63) Runner de Validação do Laboratório (Outbox/Event Relay)
+Foi adicionado um runner dedicado para reduzir erro operacional na homologação com PostgreSQL:
+
+- novo script: `scripts/lab-validate-postgres-outbox-relay.ps1`;
+- função:
+  - recebe host/database/usuário/senha;
+  - invoca o `scripts/dev-loop.ps1` no modo `-ValidatePostgresOutboxRelay`;
+  - salva log completo com timestamp em `logs/lab-postgres-outbox-relay-<timestamp>.log`.
+
+Benefício:
+- execução padronizada de validação no servidor Ubuntu com geração automática de evidência para auditoria técnica.
+
+## 64) Hardening de Teste de Integração do Event Relay (Retry)
+Foi aplicado ajuste de robustez no teste de retry do Event Relay para eliminar intermitência de lock:
+
+- arquivo: `ProformaFarm.Application.Tests/Integration/Outbox/OutboxEventRelayPipelineTests.cs`;
+- no cenário `Relay_deve_aplicar_retry_e_marcar_failed_ao_exceder_tentativas`, ao forçar o registro para nova tentativa, o teste agora também limpa `LockedUntilUtc = NULL`.
+
+Resultado:
+- evita falso negativo quando o worker não pode reivindicar o item por lock residual;
+- suíte `Integration.Outbox` validada com sucesso após o ajuste.
