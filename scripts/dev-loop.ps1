@@ -10,6 +10,7 @@ param(
     [string]$TestFilter,
     [switch]$UseLabSettings,
     [switch]$ApplyPostgresScripts,
+    [switch]$ValidatePostgresOutboxRelay,
     [string]$PostgresPsql = "psql",
     [string]$PostgresConnection,
     [switch]$PostgresSafeMode = $true,
@@ -156,6 +157,26 @@ function New-ProjectBackup {
     Write-Host " - $zip"
 }
 
+function Invoke-PostgresRelaySnapshot {
+    param(
+        [Parameter(Mandatory = $true)][string]$PsqlCommand,
+        [Parameter(Mandatory = $true)][string]$ConnectionString
+    )
+
+    $sql = @"
+SELECT 'outbox_status' AS metric, "Status"::text AS key, COUNT(1) AS total
+FROM "Core"."OutboxEvent"
+GROUP BY "Status"
+UNION ALL
+SELECT 'relay_status' AS metric, "Status"::text AS key, COUNT(1) AS total
+FROM "Integration"."IntegrationDeliveryLog"
+GROUP BY "Status"
+ORDER BY metric, key;
+"@
+
+    Invoke-CommandChecked -Command $PsqlCommand -Arguments @($ConnectionString, "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", $sql)
+}
+
 Write-Host "ProformaFarmERP dev-loop iniciado..." -ForegroundColor Green
 
 if ($CreateBackup) {
@@ -216,6 +237,51 @@ if ($ApplyPostgresScripts) {
         Invoke-Step -Name "Aplicando $script" -Action {
             Invoke-CommandChecked -Command $PostgresPsql -Arguments @($PostgresConnection, "-v", "ON_ERROR_STOP=1", "-f", $script)
         }
+    }
+}
+
+if ($ValidatePostgresOutboxRelay) {
+    if ([string]::IsNullOrWhiteSpace($PostgresConnection)) {
+        throw "Informe -PostgresConnection para validar Outbox/Event Relay no PostgreSQL."
+    }
+
+    if ($PostgresSafeMode) {
+        Invoke-Step -Name "Validação Safe Mode PostgreSQL (Outbox/Relay)" -Action {
+            Assert-PostgresSafeMode `
+                -PsqlCommand $PostgresPsql `
+                -ConnectionString $PostgresConnection `
+                -Databases $AllowedPostgresDatabases `
+                -Hosts $AllowedPostgresHosts `
+                -SharedAck $AcknowledgeSharedPostgres.IsPresent
+        }
+    }
+
+    Invoke-Step -Name "Snapshot pré-validação (Outbox/Relay)" -Action {
+        Invoke-PostgresRelaySnapshot -PsqlCommand $PostgresPsql -ConnectionString $PostgresConnection
+    }
+
+    Invoke-Step -Name "dotnet test (Outbox/Event Relay com PostgreSQL)" -Action {
+        $oldProvider = $env:Database__Provider
+        $oldPg = $env:ConnectionStrings__PostgresConnection
+        try {
+            $env:Database__Provider = "PostgreSql"
+            $env:ConnectionStrings__PostgresConnection = $PostgresConnection
+
+            Invoke-CommandChecked -Command "dotnet" -Arguments @(
+                "test",
+                $TestProject,
+                "--filter",
+                "FullyQualifiedName~Integration.Outbox"
+            )
+        }
+        finally {
+            $env:Database__Provider = $oldProvider
+            $env:ConnectionStrings__PostgresConnection = $oldPg
+        }
+    }
+
+    Invoke-Step -Name "Snapshot pós-validação (Outbox/Relay)" -Action {
+        Invoke-PostgresRelaySnapshot -PsqlCommand $PostgresPsql -ConnectionString $PostgresConnection
     }
 }
 

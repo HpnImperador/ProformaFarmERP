@@ -1,51 +1,51 @@
-# Migração SQL Server para PostgreSQL (Plano Oficial)
+﻿# MigraÃ§Ã£o SQL Server para PostgreSQL (Plano Oficial)
 
 ## 1. Objetivo
-Definir e executar a migração do banco de dados do ProformaFarm ERP de SQL Server para PostgreSQL, mantendo continuidade operacional, segurança por `OrgContext` e rastreabilidade do pipeline `Outbox + Event Relay`.
+Definir e executar a migraÃ§Ã£o do banco de dados do ProformaFarm ERP de SQL Server para PostgreSQL, mantendo continuidade operacional, seguranÃ§a por `OrgContext` e rastreabilidade do pipeline `Outbox + Event Relay`.
 
 ## 2. Ambiente-alvo validado
-- Servidor de laboratório: Ubuntu Server.
-- Serviços já disponíveis:
+- Servidor de laboratÃ³rio: Ubuntu Server.
+- ServiÃ§os jÃ¡ disponÃ­veis:
   - PostgreSQL
   - N8N
   - Prisma
 
-Esse ambiente será usado como referência de homologação da trilha PostgreSQL.
+Esse ambiente serÃ¡ usado como referÃªncia de homologaÃ§Ã£o da trilha PostgreSQL.
 
-## 3. Estratégia de migração
+## 3. EstratÃ©gia de migraÃ§Ã£o
 ### 3.1 Abordagem
-- Migração incremental por trilha paralela (branch dedicada).
-- SQL Server permanece como base estável até o corte final.
-- PostgreSQL entra primeiro como alvo de homologação técnica.
+- MigraÃ§Ã£o incremental por trilha paralela (branch dedicada).
+- SQL Server permanece como base estÃ¡vel atÃ© o corte final.
+- PostgreSQL entra primeiro como alvo de homologaÃ§Ã£o tÃ©cnica.
 
 ### 3.2 Fases
 1. Foundation de provider:
-   - Configuração de `Database:Provider` no backend.
+   - ConfiguraÃ§Ã£o de `Database:Provider` no backend.
    - Suporte a `DefaultConnection` (SQL Server) e `PostgresConnection` (PostgreSQL).
-2. Compatibilização de persistência:
+2. CompatibilizaÃ§Ã£o de persistÃªncia:
    - EF Core com `UseNpgsql`.
    - Dapper via `NpgsqlConnection`.
-3. Conversão de SQL:
-   - Scripts idempotentes em versão PostgreSQL.
+3. ConversÃ£o de SQL:
+   - Scripts idempotentes em versÃ£o PostgreSQL.
    - Ajustes de sintaxe T-SQL para PostgreSQL.
-4. Validação:
+4. ValidaÃ§Ã£o:
    - `dotnet build`
-   - Testes de integração no banco PostgreSQL.
+   - Testes de integraÃ§Ã£o no banco PostgreSQL.
 5. Cutover:
    - janela controlada
-   - backup/restauração validados
+   - backup/restauraÃ§Ã£o validados
    - rollback documentado.
 
-## 4. Mudanças já concluídas nesta fase
-- Chave de configuração de provider adicionada:
+## 4. MudanÃ§as jÃ¡ concluÃ­das nesta fase
+- Chave de configuraÃ§Ã£o de provider adicionada:
   - `Database:Provider` (`SqlServer` ou `PostgreSql`).
 - `Program.cs` preparado para alternar `UseSqlServer` / `UseNpgsql`.
-- Fábrica de conexões Dapper preparada para SQL Server e PostgreSQL no mesmo contrato (`ISqlConnectionFactory`).
+- FÃ¡brica de conexÃµes Dapper preparada para SQL Server e PostgreSQL no mesmo contrato (`ISqlConnectionFactory`).
 - `appsettings*.json` com `PostgresConnection`.
-- `appsettings.Lab.json` para homologação no Ubuntu Server.
+- `appsettings.Lab.json` para homologaÃ§Ã£o no Ubuntu Server.
 
 ## 4.1 Scripts PostgreSQL disponibilizados
-Foram criadas versões idempotentes dos scripts core em:
+Foram criadas versÃµes idempotentes dos scripts core em:
 
 - `docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql`
 - `docs/sql/postgresql/002_seed_estrutura_organizacional_postgresql.sql`
@@ -54,7 +54,7 @@ Foram criadas versões idempotentes dos scripts core em:
 - `docs/sql/postgresql/005_core_outbox_postgresql.sql`
 - `docs/sql/postgresql/006_integration_event_relay_postgresql.sql`
 
-Ordem de execução recomendada no PostgreSQL:
+Ordem de execuÃ§Ã£o recomendada no PostgreSQL:
 1. `001`
 2. `002`
 3. `003`
@@ -62,7 +62,7 @@ Ordem de execução recomendada no PostgreSQL:
 5. `005`
 6. `006`
 
-## 5. Checklist técnico de compatibilidade
+## 5. Checklist tÃ©cnico de compatibilidade
 - Tipos:
   - `uniqueidentifier` -> `uuid`
   - `datetimeoffset` -> `timestamp with time zone`
@@ -72,29 +72,29 @@ Ordem de execução recomendada no PostgreSQL:
   - `GETUTCDATE`/`SYSUTCDATETIME` -> `now() at time zone 'utc'` (ou `CURRENT_TIMESTAMP`)
   - `OUTPUT INSERTED` -> `RETURNING`
   - `MERGE` -> `INSERT ... ON CONFLICT ... DO UPDATE`
-  - hints SQL Server (`WITH (UPDLOCK, READPAST, ROWLOCK)`) -> estratégia equivalente em PostgreSQL (`FOR UPDATE SKIP LOCKED`)
-- Índices/constraints:
-  - revisar índices filtrados e constraints específicas.
+  - hints SQL Server (`WITH (UPDLOCK, READPAST, ROWLOCK)`) -> estratÃ©gia equivalente em PostgreSQL (`FOR UPDATE SKIP LOCKED`)
+- Ãndices/constraints:
+  - revisar Ã­ndices filtrados e constraints especÃ­ficas.
 
 Matriz de gaps atual:
 - `docs/MATRIZ_GAPS_POSTGRESQL.md`
 
-## 6. Integração com N8N e Prisma
+## 6. IntegraÃ§Ã£o com N8N e Prisma
 - N8N:
-  - consumir webhooks do `Event Relay` para automações externas.
+  - consumir webhooks do `Event Relay` para automaÃ§Ãµes externas.
   - usar `CorrelationId` para trilha operacional.
 - Prisma:
-  - opcional para integrações de leitura/serviços auxiliares.
-  - não substituir EF Core/Dapper no core do monólito sem decisão arquitetural formal.
+  - opcional para integraÃ§Ãµes de leitura/serviÃ§os auxiliares.
+  - nÃ£o substituir EF Core/Dapper no core do monÃ³lito sem decisÃ£o arquitetural formal.
 
-## 7. Comandos de referência
+## 7. Comandos de referÃªncia
 ```powershell
 dotnet restore
 dotnet build
 dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj
 ```
 
-### 7.2 Execução segura via dev-loop (safe mode)
+### 7.2 ExecuÃ§Ã£o segura via dev-loop (safe mode)
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 `
   -ApplyPostgresScripts `
@@ -104,10 +104,10 @@ powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 `
   -AcknowledgeSharedPostgres
 ```
 
-Referência operacional:
+ReferÃªncia operacional:
 - `docs/CHECKLIST_PRE_EXECUCAO_POSTGRESQL.md`
 
-### 7.1 Execução de scripts no Ubuntu (exemplo com psql)
+### 7.1 ExecuÃ§Ã£o de scripts no Ubuntu (exemplo com psql)
 ```bash
 psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql
 psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/002_seed_estrutura_organizacional_postgresql.sql
@@ -117,8 +117,31 @@ psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user
 psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/006_integration_event_relay_postgresql.sql
 ```
 
-## 8. Critérios de pronto para corte
-- Build e suíte de integração verdes com PostgreSQL.
-- Scripts centrais (`Organização`, `Estoque`, `Outbox`, `Relay`) executados com sucesso no Ubuntu.
+## 8. CritÃ©rios de pronto para corte
+- Build e suÃ­te de integraÃ§Ã£o verdes com PostgreSQL.
+- Scripts centrais (`OrganizaÃ§Ã£o`, `Estoque`, `Outbox`, `Relay`) executados com sucesso no Ubuntu.
 - Monitoramento operacional e logs com `CorrelationId` validados.
 - Plano de rollback testado.
+
+## 9. Validação prática do Outbox + Event Relay no laboratório
+Para validar o pipeline ponta a ponta no PostgreSQL (sem impacto em outros bancos), use o modo dedicado no `dev-loop`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 `
+  -ValidatePostgresOutboxRelay `
+  -PostgresConnection "host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>" `
+  -AllowedPostgresDatabases proformafarm `
+  -AllowedPostgresHosts <ubuntu_server_ip> `
+  -AcknowledgeSharedPostgres `
+  -TestProject "ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj"
+```
+
+O que o modo faz automaticamente:
+- valida `safe mode` (database e host allowlist);
+- captura snapshot pré e pós execução do estado de `Core.OutboxEvent` e `Integration.IntegrationDeliveryLog`;
+- executa os testes de integração filtrados de Outbox com provider PostgreSQL.
+
+Evidências mínimas para anexar no checklist:
+1. Console com snapshots pré/pós.
+2. Resultado `dotnet test` com suíte de Outbox verde.
+3. Confirmação de ausência de impacto em outros bancos do servidor compartilhado.

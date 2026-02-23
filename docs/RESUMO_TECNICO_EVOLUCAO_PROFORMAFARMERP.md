@@ -883,3 +883,19 @@ Foi executada a etapa de compatibilização dos pontos restantes mapeados para s
 Validação:
 - `dotnet build` com sucesso;
 - `dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj --filter "FullyQualifiedName~Integration.Organizacao|FullyQualifiedName~Integration.Estoque|FullyQualifiedName~Integration.Outbox"` com sucesso (67 testes aprovados).
+
+## 62) Fechamento Operacional da Trilha PostgreSQL (Outbox + Event Relay)
+Foi adicionado modo dedicado de validação operacional no laboratório para o pipeline de integração:
+
+- `scripts/dev-loop.ps1`:
+  - novo switch `-ValidatePostgresOutboxRelay`;
+  - execução com `safe mode` obrigatório (allowlist de host/database + confirmação explícita);
+  - snapshot pré e pós validação com contagens por status de:
+    - `Core.OutboxEvent`;
+    - `Integration.IntegrationDeliveryLog`;
+  - execução automática dos testes de integração de Outbox com provider PostgreSQL via variáveis de ambiente no processo (`Database__Provider`, `ConnectionStrings__PostgresConnection`).
+- documentação operacional atualizada em:
+  - `docs/MIGRACAO_SQLSERVER_PARA_POSTGRESQL.md` (seção de validação prática no laboratório).
+
+Objetivo:
+- garantir evidência auditável da execução do pipeline `Outbox -> Relay` no PostgreSQL de laboratório sem risco para outros bancos do mesmo servidor.
