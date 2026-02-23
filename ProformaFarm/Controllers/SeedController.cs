@@ -17,12 +17,15 @@ public sealed class SeedController : ControllerBase
     private readonly ISqlConnectionFactory _factory;
     private readonly IPasswordService _passwords;
     private readonly IWebHostEnvironment _env;
+    private readonly bool _isPostgres;
 
     public SeedController(ISqlConnectionFactory factory, IPasswordService passwords, IWebHostEnvironment env)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _passwords = passwords ?? throw new ArgumentNullException(nameof(passwords));
         _env = env ?? throw new ArgumentNullException(nameof(env));
+        _isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -41,17 +44,19 @@ public sealed class SeedController : ControllerBase
         using var cn = _factory.CreateConnection();
 
         // 1) Cria perfis básicos (idempotente)
-        const string upsertPerfis = @"
-IF NOT EXISTS (SELECT 1 FROM Perfil WHERE Nome = 'ADMIN') INSERT INTO Perfil (Nome) VALUES ('ADMIN');
-IF NOT EXISTS (SELECT 1 FROM Perfil WHERE Nome = 'GESTOR') INSERT INTO Perfil (Nome) VALUES ('GESTOR');
-IF NOT EXISTS (SELECT 1 FROM Perfil WHERE Nome = 'CAIXA')  INSERT INTO Perfil (Nome) VALUES ('CAIXA');
-IF NOT EXISTS (SELECT 1 FROM Perfil WHERE Nome = 'FISCAL') INSERT INTO Perfil (Nome) VALUES ('FISCAL');
-IF NOT EXISTS (SELECT 1 FROM Perfil WHERE Nome = 'SNGPC')  INSERT INTO Perfil (Nome) VALUES ('SNGPC');
-";
-        await cn.ExecuteAsync(upsertPerfis);
+        foreach (var nomePerfil in new[] { "ADMIN", "GESTOR", "CAIXA", "FISCAL", "SNGPC" })
+            _ = await GarantirPerfilAsync(cn, nomePerfil);
 
         // 2) Verifica se admin já existe
-        const string getAdmin = @"
+        var getAdmin = _isPostgres
+            ? @"
+SELECT
+  IdUsuario, Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao
+FROM dbo.Usuario
+WHERE Login = 'admin'
+LIMIT 1;
+"
+            : @"
 SELECT TOP 1
   IdUsuario, Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao
 FROM dbo.Usuario
@@ -63,7 +68,13 @@ WHERE Login = 'admin';
         {
             var (hash, salt) = _passwords.HashPassword(senha);
 
-            const string insertAdmin = @"
+            var insertAdmin = _isPostgres
+                ? @"
+INSERT INTO dbo.Usuario (Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao)
+VALUES (@Nome, @Login, @SenhaHash, @SenhaSalt, @Ativo, @DataCriacao)
+RETURNING IdUsuario;
+"
+                : @"
 INSERT INTO dbo.Usuario (Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao)
 OUTPUT INSERTED.IdUsuario
 VALUES (@Nome, @Login, @SenhaHash, @SenhaSalt, @Ativo, @DataCriacao);
@@ -122,17 +133,36 @@ WHERE IdUsuario = @IdUsuario;
         });
     }
 
-    private static Task GarantirVinculoAdminAsync(System.Data.IDbConnection cn, int idUsuario)
+    private static async Task<int> GarantirPerfilAsync(System.Data.IDbConnection cn, string nome)
     {
-        const string sql = @"
-DECLARE @IdPerfilAdmin INT = (SELECT IdPerfil FROM dbo.Perfil WHERE Nome = 'ADMIN');
-IF NOT EXISTS (
-    SELECT 1 FROM dbo.UsuarioPerfil
-    WHERE IdUsuario = @IdUsuario AND IdPerfil = @IdPerfilAdmin
-)
-    INSERT INTO dbo.UsuarioPerfil (IdUsuario, IdPerfil)
-    VALUES (@IdUsuario, @IdPerfilAdmin);
-";
-        return cn.ExecuteAsync(sql, new { IdUsuario = idUsuario });
+        const string getPerfilSql = @"SELECT IdPerfil FROM dbo.Perfil WHERE Nome = @Nome;";
+        var idPerfil = await cn.ExecuteScalarAsync<int?>(getPerfilSql, new { Nome = nome });
+        if (idPerfil.HasValue)
+            return idPerfil.Value;
+
+        const string insertPerfilSql = @"INSERT INTO dbo.Perfil (Nome) VALUES (@Nome);";
+        await cn.ExecuteAsync(insertPerfilSql, new { Nome = nome });
+        idPerfil = await cn.ExecuteScalarAsync<int?>(getPerfilSql, new { Nome = nome });
+        if (!idPerfil.HasValue)
+            throw new InvalidOperationException($"Falha ao garantir perfil '{nome}'.");
+
+        return idPerfil.Value;
+    }
+
+    private static async Task GarantirVinculoAdminAsync(System.Data.IDbConnection cn, int idUsuario)
+    {
+        var idPerfilAdmin = await GarantirPerfilAsync(cn, "ADMIN");
+        const string jaVinculadoSql = @"
+SELECT 1
+FROM dbo.UsuarioPerfil
+WHERE IdUsuario = @IdUsuario
+  AND IdPerfil = @IdPerfil;";
+        var vinculado = await cn.ExecuteScalarAsync<int?>(jaVinculadoSql, new { IdUsuario = idUsuario, IdPerfil = idPerfilAdmin });
+        if (vinculado.HasValue)
+            return;
+
+        await cn.ExecuteAsync(
+            @"INSERT INTO dbo.UsuarioPerfil (IdUsuario, IdPerfil) VALUES (@IdUsuario, @IdPerfil);",
+            new { IdUsuario = idUsuario, IdPerfil = idPerfilAdmin });
     }
 }
