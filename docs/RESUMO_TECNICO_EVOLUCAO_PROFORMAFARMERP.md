@@ -651,3 +651,44 @@ Cenário coberto:
 
 Status:
 - suíte filtrada de Outbox executada com sucesso (5 aprovados).
+
+## 46) Segundo Evento de Negócio Real no Outbox (Estoque Reposto)
+Foi implementado o segundo evento de negócio real sobre o pipeline Outbox:
+
+- evento: `EstoqueRepostoDomainEvent`;
+- geração no domínio de estoque em operações de entrada/ajuste que recompõem saldo;
+- condição operacional aplicada: transição de faixa de estoque baixo para normal (`antes <= limite` e `depois > limite`);
+- gravação no Outbox dentro da mesma transação Dapper da movimentação.
+
+## 47) Handler Idempotente para Estoque Reposto
+Foi incorporado handler dedicado:
+
+- `EstoqueRepostoDomainEventHandler`;
+- persistência de evidência operacional em `Core.EstoqueRepostoNotificacao`;
+- idempotência garantida por `EventId` com índice único (`UX_Core_EstoqueRepostoNotificacao_EventId`).
+
+Ajustes de banco:
+- atualização de `docs/sql/005_core_outbox.sql` com estrutura da tabela de notificação e índices operacionais.
+
+## 48) Qualidade (Outbox + Segundo Evento de Negócio)
+Foi adicionada suíte de integração para o cenário real:
+
+- `ProformaFarm.Application.Tests/Integration/Outbox/OutboxEstoqueRepostoPipelineTests.cs`
+
+Cenário coberto:
+- saída reduz saldo para faixa baixa;
+- entrada recompõe saldo para faixa normal;
+- evento é persistido no Outbox;
+- worker processa o evento;
+- notificação é registrada com idempotência por `EventId`.
+
+## 49) Baseline de Arquitetura de Interface Omnichannel Absorvido
+Foi incorporado como diretriz de evolução contínua o documento:
+
+- `docs/Arquitetura de Interface e Experiência Omnichannel.md`
+
+Diretrizes travadas para os próximos incrementos:
+- o produto é plataforma completa (API + painel backend + frontend omnichannel), não API-only;
+- `OrgContext` deve ser visível e obrigatório em toda interface (ContextBar fixa);
+- segurança visual e anti cross-tenant devem existir em SSR/middleware e API;
+- rastreabilidade por `CorrelationId` deve aparecer em ações críticas e erros.

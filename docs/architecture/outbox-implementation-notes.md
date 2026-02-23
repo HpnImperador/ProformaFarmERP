@@ -39,6 +39,13 @@ Implementar uma infraestrutura transversal de **Domain Events + Outbox Pattern**
 - handler `EstoqueBaixoDomainEventHandler` com persistência em `Core.EstoqueBaixoNotificacao`;
 - idempotência do handler com chave única por `EventId`.
 
+6. **Segundo evento de negócio real (Estoque Reposto)**
+- evento `EstoqueRepostoDomainEvent` gerado quando o saldo líquido cruza de faixa baixa para normal;
+- regra aplicada: `QuantidadeLiquidaAntes <= Limite` e `QuantidadeLiquidaDepois > Limite`;
+- gravação no Outbox na mesma transação Dapper da movimentação;
+- handler `EstoqueRepostoDomainEventHandler` com persistência em `Core.EstoqueRepostoNotificacao`;
+- idempotência do handler com chave única por `EventId`.
+
 ## Regras obrigatórias aplicadas
 
 - `OrganizacaoId` vem do **OrgContext** e é propagado ao evento.
@@ -82,3 +89,4 @@ Cobertura implementada:
 - retry com backoff;
 - idempotência por `EventId`;
 - cenário de negócio `EstoqueBaixo` (geração + processamento + persistência de notificação).
+- cenário de negócio `EstoqueReposto` (transição de estoque baixo para normal, processamento e persistência idempotente).

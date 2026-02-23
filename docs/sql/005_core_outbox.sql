@@ -137,3 +137,49 @@ BEGIN
         ON Core.EstoqueBaixoNotificacao (OrganizacaoId, IdProduto, DetectadoEmUtc DESC);
 END
 GO
+
+IF OBJECT_ID(N'Core.EstoqueRepostoNotificacao', N'U') IS NULL
+BEGIN
+    CREATE TABLE Core.EstoqueRepostoNotificacao
+    (
+        Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Core_EstoqueRepostoNotificacao PRIMARY KEY,
+        EventId UNIQUEIDENTIFIER NOT NULL,
+        OrganizacaoId INT NOT NULL,
+        IdUnidadeOrganizacional INT NOT NULL,
+        IdProduto INT NOT NULL,
+        IdLote INT NULL,
+        QuantidadeLiquidaAntes DECIMAL(18,4) NOT NULL,
+        QuantidadeLiquidaDepois DECIMAL(18,4) NOT NULL,
+        LimiteEstoqueBaixo DECIMAL(18,4) NOT NULL,
+        OrigemMovimento NVARCHAR(40) NOT NULL,
+        DocumentoReferencia NVARCHAR(120) NULL,
+        CorrelationId UNIQUEIDENTIFIER NULL,
+        DetectadoEmUtc DATETIMEOFFSET(0) NOT NULL,
+        RegistradoEmUtc DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_Core_EstoqueRepostoNotificacao_RegistradoEmUtc DEFAULT (SYSUTCDATETIME())
+    );
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'Core.EstoqueRepostoNotificacao')
+      AND name = N'UX_Core_EstoqueRepostoNotificacao_EventId'
+)
+BEGIN
+    CREATE UNIQUE INDEX UX_Core_EstoqueRepostoNotificacao_EventId
+        ON Core.EstoqueRepostoNotificacao (EventId);
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'Core.EstoqueRepostoNotificacao')
+      AND name = N'IX_Core_EstoqueRepostoNotificacao_Org_Produto'
+)
+BEGIN
+    CREATE INDEX IX_Core_EstoqueRepostoNotificacao_Org_Produto
+        ON Core.EstoqueRepostoNotificacao (OrganizacaoId, IdProduto, DetectadoEmUtc DESC);
+END
+GO

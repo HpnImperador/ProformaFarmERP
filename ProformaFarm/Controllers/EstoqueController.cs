@@ -1272,6 +1272,19 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             documentoReferenciaNormalizado,
             HttpContext.RequestAborted);
 
+        await RegistrarEventoEstoqueRepostoSeNecessarioAsync(
+            cn,
+            tx,
+            idOrganizacaoEfetiva.Value,
+            request.IdUnidadeOrganizacional,
+            request.IdProduto,
+            request.IdLote,
+            estoque.QuantidadeDisponivel - estoque.QuantidadeReservada,
+            request.QuantidadeDisponivel - estoque.QuantidadeReservada,
+            "AJUSTE",
+            documentoReferenciaNormalizado,
+            HttpContext.RequestAborted);
+
         tx.Commit();
 
         return Ok(ApiResponse<MovimentacaoResult>.Ok(new MovimentacaoResult
@@ -1626,6 +1639,19 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             documentoReferenciaNormalizado,
             ct);
 
+        await RegistrarEventoEstoqueRepostoSeNecessarioAsync(
+            cn,
+            tx,
+            idOrganizacaoEfetiva.Value,
+            idUnidadeOrganizacional,
+            idProduto,
+            idLote,
+            quantidadeAnterior - quantidadeReservada,
+            quantidadeAtualFinal - quantidadeReservada,
+            tipoMovimento,
+            documentoReferenciaNormalizado,
+            ct);
+
         tx.Commit();
 
         return Ok(ApiResponse<MovimentacaoResult>.Ok(new MovimentacaoResult
@@ -1859,6 +1885,53 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 Id = evt.EventId,
                 OrganizacaoId = evt.OrganizacaoId,
                 EventType = typeof(EstoqueBaixoDomainEvent).FullName!,
+                Payload = JsonSerializer.Serialize(evt),
+                OccurredOnUtc = evt.DetectadoEmUtc,
+                CorrelationId = evt.CorrelationId,
+                NextAttemptUtc = DateTimeOffset.MinValue
+            },
+            tx,
+            cancellationToken: ct));
+    }
+
+    private async Task RegistrarEventoEstoqueRepostoSeNecessarioAsync(
+        IDbConnection cn,
+        IDbTransaction tx,
+        int idOrganizacao,
+        int idUnidadeOrganizacional,
+        int idProduto,
+        int? idLote,
+        decimal quantidadeLiquidaAntes,
+        decimal quantidadeLiquidaDepois,
+        string origemMovimento,
+        string? documentoReferencia,
+        CancellationToken ct)
+    {
+        if (quantidadeLiquidaAntes > LimiteEstoqueBaixoPadrao)
+            return;
+
+        if (quantidadeLiquidaDepois <= LimiteEstoqueBaixoPadrao)
+            return;
+
+        var evt = EstoqueRepostoDomainEvent.Create(
+            organizacaoId: idOrganizacao,
+            idUnidadeOrganizacional: idUnidadeOrganizacional,
+            idProduto: idProduto,
+            idLote: idLote,
+            quantidadeLiquidaAntes: quantidadeLiquidaAntes,
+            quantidadeLiquidaDepois: quantidadeLiquidaDepois,
+            limiteEstoqueBaixo: LimiteEstoqueBaixoPadrao,
+            origemMovimento: origemMovimento,
+            documentoReferencia: documentoReferencia,
+            correlationId: _correlationIdAccessor.GetCurrentCorrelationId());
+
+        await cn.ExecuteAsync(new CommandDefinition(
+            InsertOutboxEventSql,
+            new
+            {
+                Id = evt.EventId,
+                OrganizacaoId = evt.OrganizacaoId,
+                EventType = typeof(EstoqueRepostoDomainEvent).FullName!,
                 Payload = JsonSerializer.Serialize(evt),
                 OccurredOnUtc = evt.DetectadoEmUtc,
                 CorrelationId = evt.CorrelationId,
