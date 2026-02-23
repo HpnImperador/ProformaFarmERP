@@ -11,9 +11,14 @@ namespace ProformaFarm.Infrastructure.Repositories.Auth;
 public sealed class UserRepository : IUserRepository
 {
     private readonly ISqlConnectionFactory _factory;
+    private readonly bool _isPostgres;
 
-    public UserRepository(ISqlConnectionFactory factory) =>
+    public UserRepository(ISqlConnectionFactory factory)
+    {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
+    }
 
     public async Task<Usuario?> GetByLoginAsync(string login, CancellationToken ct = default)
     {
@@ -22,7 +27,15 @@ public sealed class UserRepository : IUserRepository
 
         using var cn = _factory.CreateConnection();
 
-        const string sql = @"
+        var sql = _isPostgres
+            ? @"
+SELECT
+    IdUsuario, Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao
+FROM dbo.Usuario
+WHERE Login = @Login
+LIMIT 1;
+"
+            : @"
 SELECT TOP (1)
     IdUsuario, Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao
 FROM dbo.Usuario

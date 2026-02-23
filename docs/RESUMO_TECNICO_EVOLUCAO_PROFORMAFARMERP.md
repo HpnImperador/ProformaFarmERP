@@ -843,3 +843,24 @@ Foi executada a primeira etapa de compatibilização de runtime para PostgreSQL 
 Validação:
 - `dotnet build` com sucesso;
 - suíte de integração filtrada (`Organização`, `Estoque`, `Outbox`) com sucesso (67 testes aprovados).
+
+## 60) Refatoração Prioridade 1 (Auth + Escrita Transacional de Estoque)
+Foi concluída a segunda etapa de compatibilização para PostgreSQL nos fluxos transacionais e de autenticação:
+
+- `UserRepository`:
+  - seleção por `Login` com SQL dinâmico por provider (`TOP (1)` no SQL Server e `LIMIT 1` no PostgreSQL).
+- `RefreshTokenRepository`:
+  - `INSERT` com data de criação compatível por provider (`SYSUTCDATETIME()` / `CURRENT_TIMESTAMP`);
+  - consulta de token ativo com filtro temporal por provider e paginação compatível (`TOP (1)` / `LIMIT 1`).
+- `EstoqueController` (escrita/transação):
+  - criação de SQLs específicos para PostgreSQL em operações críticas (`FOR UPDATE`, `FOR UPDATE SKIP LOCKED`, `RETURNING`);
+  - manutenção do SQL atual para SQL Server no mesmo código, com seleção por provider;
+  - compatibilização de operações de:
+    - validação de escopo;
+    - lock de estoque e lock de reserva;
+    - inserção de estoque, movimentação e reserva;
+    - processamento de reservas expiradas em lote e por item.
+
+Validação:
+- `dotnet build` com sucesso;
+- `dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj --filter "FullyQualifiedName~Integration.Organizacao|FullyQualifiedName~Integration.Estoque|FullyQualifiedName~Integration.Outbox"` com sucesso (67 testes aprovados).

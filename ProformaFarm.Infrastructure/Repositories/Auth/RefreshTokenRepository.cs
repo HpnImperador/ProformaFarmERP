@@ -12,9 +12,14 @@ namespace ProformaFarm.Infrastructure.Repositories.Auth;
 public sealed class RefreshTokenRepository : IRefreshTokenRepository
 {
     private readonly ISqlConnectionFactory _factory;
+    private readonly bool _isPostgres;
 
-    public RefreshTokenRepository(ISqlConnectionFactory factory) =>
+    public RefreshTokenRepository(ISqlConnectionFactory factory)
+    {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
+    }
 
     public async Task InsertAsync(
         int idUsuario,
@@ -32,7 +37,14 @@ public sealed class RefreshTokenRepository : IRefreshTokenRepository
 
         using var cn = _factory.CreateConnection();
 
-        const string sql = @"
+        var sql = _isPostgres
+            ? @"
+INSERT INTO dbo.RefreshToken
+    (IdUsuario, TokenHash, ExpiraEmUtc, CriadoEmUtc, CriadoPorIp)
+VALUES
+    (@IdUsuario, @TokenHash, @ExpiraEmUtc, CURRENT_TIMESTAMP, @CriadoPorIp);
+"
+            : @"
 INSERT INTO dbo.RefreshToken
     (IdUsuario, TokenHash, ExpiraEmUtc, CriadoEmUtc, CriadoPorIp)
 VALUES
@@ -59,7 +71,26 @@ VALUES
 
         // Observação: aqui eu retorno apenas token "ativo" (não revogado e não expirado).
         // Se você quiser buscar mesmo revogado/expirado para auditoria, crie outro método (ex.: GetAnyByHashAsync).
-        const string sql = @"
+        var sql = _isPostgres
+            ? @"
+SELECT
+    IdRefreshToken,
+    IdUsuario,
+    TokenHash,
+    CriadoEmUtc,
+    ExpiraEmUtc,
+    RevogadoEmUtc,
+    CriadoPorIp,
+    RevogadoPorIp,
+    SubstituidoPorHash
+FROM dbo.RefreshToken
+WHERE TokenHash = @TokenHash
+  AND RevogadoEmUtc IS NULL
+  AND ExpiraEmUtc > CURRENT_TIMESTAMP
+ORDER BY IdRefreshToken DESC
+LIMIT 1;
+"
+            : @"
 SELECT TOP (1)
     IdRefreshToken,
     IdUsuario,

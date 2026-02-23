@@ -311,12 +311,24 @@ SELECT TOP (1) IdUnidadeOrganizacional
 FROM dbo.UnidadeOrganizacional
 WHERE IdUnidadeOrganizacional = @IdUnidadeOrganizacional
   AND IdOrganizacao = @IdOrganizacao;";
+    private const string UnidadeDaOrganizacaoSqlPg = @"
+SELECT IdUnidadeOrganizacional
+FROM dbo.UnidadeOrganizacional
+WHERE IdUnidadeOrganizacional = @IdUnidadeOrganizacional
+  AND IdOrganizacao = @IdOrganizacao
+LIMIT 1;";
 
     private const string ProdutoDaOrganizacaoSql = @"
 SELECT TOP (1) IdProduto
 FROM dbo.Produto
 WHERE IdProduto = @IdProduto
   AND IdOrganizacao = @IdOrganizacao;";
+    private const string ProdutoDaOrganizacaoSqlPg = @"
+SELECT IdProduto
+FROM dbo.Produto
+WHERE IdProduto = @IdProduto
+  AND IdOrganizacao = @IdOrganizacao
+LIMIT 1;";
 
     private const string LoteDoProdutoSql = @"
 SELECT TOP (1) IdLote
@@ -324,6 +336,13 @@ FROM dbo.Lote
 WHERE IdLote = @IdLote
   AND IdOrganizacao = @IdOrganizacao
   AND IdProduto = @IdProduto;";
+    private const string LoteDoProdutoSqlPg = @"
+SELECT IdLote
+FROM dbo.Lote
+WHERE IdLote = @IdLote
+  AND IdOrganizacao = @IdOrganizacao
+  AND IdProduto = @IdProduto
+LIMIT 1;";
 
     private const string EstoqueForUpdateSql = @"
 SELECT TOP (1)
@@ -335,6 +354,18 @@ WHERE IdOrganizacao = @IdOrganizacao
   AND IdUnidadeOrganizacional = @IdUnidadeOrganizacional
   AND IdProduto = @IdProduto
   AND ((IdLote IS NULL AND @IdLote IS NULL) OR IdLote = @IdLote);";
+    private const string EstoqueForUpdateSqlPg = @"
+SELECT
+    IdEstoque,
+    QuantidadeDisponivel,
+    QuantidadeReservada
+FROM dbo.Estoque
+WHERE IdOrganizacao = @IdOrganizacao
+  AND IdUnidadeOrganizacional = @IdUnidadeOrganizacional
+  AND IdProduto = @IdProduto
+  AND ((IdLote IS NULL AND @IdLote IS NULL) OR IdLote = @IdLote)
+FOR UPDATE
+LIMIT 1;";
 
     private const string InsertEstoqueSql = @"
 INSERT INTO dbo.Estoque
@@ -342,6 +373,12 @@ INSERT INTO dbo.Estoque
 OUTPUT INSERTED.IdEstoque
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @QuantidadeDisponivel, @QuantidadeReservada);";
+    private const string InsertEstoqueSqlPg = @"
+INSERT INTO dbo.Estoque
+    (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, QuantidadeDisponivel, QuantidadeReservada)
+VALUES
+    (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @QuantidadeDisponivel, @QuantidadeReservada)
+RETURNING IdEstoque;";
 
     private const string UpdateEstoqueSql = @"
 UPDATE dbo.Estoque
@@ -354,6 +391,12 @@ INSERT INTO dbo.MovimentacaoEstoque
 OUTPUT INSERTED.IdMovimentacaoEstoque
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @TipoMovimento, @Quantidade, @DocumentoReferencia, SYSUTCDATETIME());";
+    private const string InsertMovimentacaoSqlPg = @"
+INSERT INTO dbo.MovimentacaoEstoque
+    (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, TipoMovimento, Quantidade, DocumentoReferencia, DataMovimento)
+VALUES
+    (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @TipoMovimento, @Quantidade, @DocumentoReferencia, @UtcNow)
+RETURNING IdMovimentacaoEstoque;";
 
     private const string InsertOutboxEventSql = @"
 INSERT INTO Core.OutboxEvent
@@ -367,6 +410,12 @@ INSERT INTO dbo.ReservaEstoque
 OUTPUT INSERTED.IdReservaEstoque
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @Quantidade, @ExpiraEmUtc, @Status, @DocumentoReferencia);";
+    private const string InsertReservaSqlPg = @"
+INSERT INTO dbo.ReservaEstoque
+    (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, Quantidade, ExpiraEmUtc, Status, DocumentoReferencia)
+VALUES
+    (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @Quantidade, @ExpiraEmUtc, @Status, @DocumentoReferencia)
+RETURNING IdReservaEstoque;";
 
     private const string ReservaForUpdateSql = @"
 SELECT TOP (1)
@@ -381,6 +430,21 @@ SELECT TOP (1)
     DocumentoReferencia
 FROM dbo.ReservaEstoque WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
 WHERE IdReservaEstoque = @IdReservaEstoque;";
+    private const string ReservaForUpdateSqlPg = @"
+SELECT
+    IdReservaEstoque,
+    IdOrganizacao,
+    IdUnidadeOrganizacional,
+    IdProduto,
+    IdLote,
+    Quantidade,
+    ExpiraEmUtc,
+    Status,
+    DocumentoReferencia
+FROM dbo.ReservaEstoque
+WHERE IdReservaEstoque = @IdReservaEstoque
+FOR UPDATE
+LIMIT 1;";
 
     private const string UpdateReservaStatusSql = @"
 UPDATE dbo.ReservaEstoque
@@ -398,6 +462,18 @@ WHERE IdOrganizacao = @IdOrganizacao
   AND ((IdLote IS NULL AND @IdLote IS NULL) OR IdLote = @IdLote)
   AND Status = 'ATIVA'
   AND ExpiraEmUtc < SYSUTCDATETIME();";
+    private const string ExpiredReservasForUpdateSqlPg = @"
+SELECT
+    IdReservaEstoque,
+    Quantidade
+FROM dbo.ReservaEstoque
+WHERE IdOrganizacao = @IdOrganizacao
+  AND IdUnidadeOrganizacional = @IdUnidadeOrganizacional
+  AND IdProduto = @IdProduto
+  AND ((IdLote IS NULL AND @IdLote IS NULL) OR IdLote = @IdLote)
+  AND Status = 'ATIVA'
+  AND ExpiraEmUtc < @UtcNow
+FOR UPDATE;";
 
     private const string ExpiredReservasBatchForUpdateSql = @"
 SELECT TOP (@MaxItens)
@@ -414,6 +490,23 @@ WHERE IdOrganizacao = @IdOrganizacao
   AND (@IdProduto IS NULL OR IdProduto = @IdProduto)
   AND (@IdLote IS NULL OR IdLote = @IdLote)
 ORDER BY ExpiraEmUtc, IdReservaEstoque;";
+    private const string ExpiredReservasBatchForUpdateSqlPg = @"
+SELECT
+    IdReservaEstoque,
+    IdUnidadeOrganizacional,
+    IdProduto,
+    IdLote,
+    Quantidade
+FROM dbo.ReservaEstoque
+WHERE IdOrganizacao = @IdOrganizacao
+  AND Status = 'ATIVA'
+  AND ExpiraEmUtc < @UtcNow
+  AND (@IdUnidadeOrganizacional IS NULL OR IdUnidadeOrganizacional = @IdUnidadeOrganizacional)
+  AND (@IdProduto IS NULL OR IdProduto = @IdProduto)
+  AND (@IdLote IS NULL OR IdLote = @IdLote)
+ORDER BY ExpiraEmUtc, IdReservaEstoque
+LIMIT @MaxItens
+FOR UPDATE SKIP LOCKED;";
 
     public EstoqueController(
         ISqlConnectionFactory factory,
@@ -1257,7 +1350,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             : request.DocumentoReferencia.Trim();
 
         var idMovimentacao = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
-            InsertMovimentacaoSql,
+            GetWriteSql(InsertMovimentacaoSql, InsertMovimentacaoSqlPg),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -1266,7 +1359,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 IdLote = request.IdLote,
                 TipoMovimento = "AJUSTE",
                 Quantidade = quantidadeMovimento,
-                DocumentoReferencia = documentoReferenciaNormalizado
+                DocumentoReferencia = documentoReferenciaNormalizado,
+                UtcNow = DateTime.UtcNow
             },
             tx,
             cancellationToken: HttpContext.RequestAborted));
@@ -1392,7 +1486,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         var expiraEmUtc = DateTime.UtcNow.AddMinutes(request.TtlMinutos);
         var idReserva = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
-            InsertReservaSql,
+            GetWriteSql(InsertReservaSql, InsertReservaSqlPg),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -1459,14 +1553,15 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         using var tx = cn.BeginTransaction();
 
         var expiradas = (await cn.QueryAsync<ReservaExpiradaRow>(new CommandDefinition(
-            ExpiredReservasBatchForUpdateSql,
+            GetWriteSql(ExpiredReservasBatchForUpdateSql, ExpiredReservasBatchForUpdateSqlPg),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
                 IdUnidadeOrganizacional = request?.IdUnidadeOrganizacional,
                 IdProduto = request?.IdProduto,
                 IdLote = request?.IdLote,
-                MaxItens = maxItens
+                MaxItens = maxItens,
+                UtcNow = DateTime.UtcNow
             },
             tx,
             cancellationToken: HttpContext.RequestAborted))).ToList();
@@ -1569,7 +1664,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             }
 
             idEstoque = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
-                InsertEstoqueSql,
+                GetWriteSql(InsertEstoqueSql, InsertEstoqueSqlPg),
                 new
                 {
                     IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -1624,7 +1719,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             : documentoReferencia.Trim();
 
         var idMovimentacao = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
-            InsertMovimentacaoSql,
+            GetWriteSql(InsertMovimentacaoSql, InsertMovimentacaoSqlPg),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -1633,7 +1728,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 IdLote = idLote,
                 TipoMovimento = tipoMovimento,
                 Quantidade = quantidade,
-                DocumentoReferencia = documentoReferenciaNormalizado
+                DocumentoReferencia = documentoReferenciaNormalizado,
+                UtcNow = DateTime.UtcNow
             },
             tx,
             cancellationToken: ct));
@@ -1697,7 +1793,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         using var tx = cn.BeginTransaction();
 
         var reserva = await cn.QueryFirstOrDefaultAsync<ReservaLockRow>(new CommandDefinition(
-            ReservaForUpdateSql,
+            GetWriteSql(ReservaForUpdateSql, ReservaForUpdateSqlPg),
             new { IdReservaEstoque = idReservaEstoque },
             tx,
             cancellationToken: HttpContext.RequestAborted));
@@ -1814,7 +1910,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         if (acao == "CONFIRMADA")
         {
             _ = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
-                InsertMovimentacaoSql,
+                GetWriteSql(InsertMovimentacaoSql, InsertMovimentacaoSqlPg),
                 new
                 {
                     IdOrganizacao = reserva.IdOrganizacao,
@@ -1823,7 +1919,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                     IdLote = reserva.IdLote,
                     TipoMovimento = "SAIDA",
                     Quantidade = reserva.Quantidade,
-                    DocumentoReferencia = $"RESERVA:{idReservaEstoque}"
+                    DocumentoReferencia = $"RESERVA:{idReservaEstoque}",
+                    UtcNow = DateTime.UtcNow
                 },
                 tx,
                 cancellationToken: HttpContext.RequestAborted));
@@ -1964,13 +2061,14 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         CancellationToken ct)
     {
         var expiradas = (await cn.QueryAsync<ReservaExpiradaRow>(new CommandDefinition(
-            ExpiredReservasForUpdateSql,
+            GetWriteSql(ExpiredReservasForUpdateSql, ExpiredReservasForUpdateSqlPg),
             new
             {
                 IdOrganizacao = idOrganizacao,
                 IdUnidadeOrganizacional = idUnidadeOrganizacional,
                 IdProduto = idProduto,
-                IdLote = idLote
+                IdLote = idLote,
+                UtcNow = DateTime.UtcNow
             },
             tx,
             cancellationToken: ct))).ToList();
@@ -2010,7 +2108,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         CancellationToken ct)
     {
         var unidadeExiste = await cn.ExecuteScalarAsync<int?>(new CommandDefinition(
-            UnidadeDaOrganizacaoSql,
+            GetWriteSql(UnidadeDaOrganizacaoSql, UnidadeDaOrganizacaoSqlPg),
             new { IdUnidadeOrganizacional = idUnidadeOrganizacional, IdOrganizacao = idOrganizacao },
             tx,
             cancellationToken: ct));
@@ -2023,7 +2121,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         }
 
         var produtoExiste = await cn.ExecuteScalarAsync<int?>(new CommandDefinition(
-            ProdutoDaOrganizacaoSql,
+            GetWriteSql(ProdutoDaOrganizacaoSql, ProdutoDaOrganizacaoSqlPg),
             new { IdProduto = idProduto, IdOrganizacao = idOrganizacao },
             tx,
             cancellationToken: ct));
@@ -2038,7 +2136,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         if (idLote.HasValue)
         {
             var loteExiste = await cn.ExecuteScalarAsync<int?>(new CommandDefinition(
-                LoteDoProdutoSql,
+                GetWriteSql(LoteDoProdutoSql, LoteDoProdutoSqlPg),
                 new { IdLote = idLote.Value, IdOrganizacao = idOrganizacao, IdProduto = idProduto },
                 tx,
                 cancellationToken: ct));
@@ -2065,7 +2163,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         CancellationToken ct)
     {
         return await cn.QueryFirstOrDefaultAsync<EstoqueLockRow>(new CommandDefinition(
-            EstoqueForUpdateSql,
+            GetWriteSql(EstoqueForUpdateSql, EstoqueForUpdateSqlPg),
             new
             {
                 IdOrganizacao = idOrganizacao,
@@ -2084,6 +2182,9 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         return await _orgContext.GetCurrentOrganizacaoIdAsync(HttpContext.RequestAborted);
     }
+
+    private string GetWriteSql(string sqlServer, string sqlPostgres) =>
+        _isPostgres ? sqlPostgres : sqlServer;
 
     private string GetReadSql(string sql)
     {
