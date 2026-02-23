@@ -42,6 +42,25 @@ Esse ambiente será usado como referência de homologação da trilha PostgreSQL
 - `Program.cs` preparado para alternar `UseSqlServer` / `UseNpgsql`.
 - Fábrica de conexões Dapper preparada para SQL Server e PostgreSQL no mesmo contrato (`ISqlConnectionFactory`).
 - `appsettings*.json` com `PostgresConnection`.
+- `appsettings.Lab.json` para homologação no Ubuntu Server.
+
+## 4.1 Scripts PostgreSQL disponibilizados
+Foram criadas versões idempotentes dos scripts core em:
+
+- `docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql`
+- `docs/sql/postgresql/002_seed_estrutura_organizacional_postgresql.sql`
+- `docs/sql/postgresql/003_idx_lotacaousuario_orgcontext_postgresql.sql`
+- `docs/sql/postgresql/004_estoque_basico_postgresql.sql`
+- `docs/sql/postgresql/005_core_outbox_postgresql.sql`
+- `docs/sql/postgresql/006_integration_event_relay_postgresql.sql`
+
+Ordem de execução recomendada no PostgreSQL:
+1. `001`
+2. `002`
+3. `003`
+4. `004`
+5. `005`
+6. `006`
 
 ## 5. Checklist técnico de compatibilidade
 - Tipos:
@@ -70,6 +89,16 @@ Esse ambiente será usado como referência de homologação da trilha PostgreSQL
 dotnet restore
 dotnet build
 dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj
+```
+
+### 7.1 Execução de scripts no Ubuntu (exemplo com psql)
+```bash
+psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql
+psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/002_seed_estrutura_organizacional_postgresql.sql
+psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/003_idx_lotacaousuario_orgcontext_postgresql.sql
+psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/004_estoque_basico_postgresql.sql
+psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/005_core_outbox_postgresql.sql
+psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/006_integration_event_relay_postgresql.sql
 ```
 
 ## 8. Critérios de pronto para corte

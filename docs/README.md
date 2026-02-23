@@ -212,6 +212,7 @@ Sempre que houver incremento relevante:
 - `docs/sql/003_idx_lotacaousuario_orgcontext.sql`
 - `docs/sql/004_estoque_basico.sql`
 - `docs/sql/005_core_outbox.sql`
+- `docs/sql/postgresql/`
 - `docs/architecture/outbox-implementation-notes.md`
 - `docs/architecture/outbox-merge-checklist.md`
 

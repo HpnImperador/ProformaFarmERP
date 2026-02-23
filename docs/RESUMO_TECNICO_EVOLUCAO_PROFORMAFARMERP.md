@@ -750,3 +750,36 @@ Documentação oficial de migração criada:
 Diretriz operacional:
 - SQL Server permanece como trilha estável;
 - PostgreSQL evolui em trilha paralela até validação completa de build/testes e scripts.
+
+## 54) Scripts PostgreSQL Core (001 a 006) e Ambiente Lab
+Foi criado o pacote inicial de scripts idempotentes para execução no PostgreSQL:
+
+- `docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql`
+- `docs/sql/postgresql/002_seed_estrutura_organizacional_postgresql.sql`
+- `docs/sql/postgresql/003_idx_lotacaousuario_orgcontext_postgresql.sql`
+- `docs/sql/postgresql/004_estoque_basico_postgresql.sql`
+- `docs/sql/postgresql/005_core_outbox_postgresql.sql`
+- `docs/sql/postgresql/006_integration_event_relay_postgresql.sql`
+
+Também foi adicionado arquivo de configuração para homologação no servidor Ubuntu:
+
+- `ProformaFarm/appsettings.Lab.json`
+
+Uso previsto:
+- validação da trilha PostgreSQL no laboratório (Ubuntu + PostgreSQL + N8N + Prisma);
+- execução ordenada dos scripts para preparar o banco de homologação.
+
+## 55) Automação de Execução Não Interativa (Dev Loop)
+O script de automação de desenvolvimento foi evoluído para suportar fluxo completo sem interação:
+
+- arquivo: `scripts/dev-loop.ps1`;
+- capacidades adicionadas:
+  - backup geral (`git bundle` + `zip`);
+  - criação de branch;
+  - `dotnet restore/build/test`;
+  - aplicação dos scripts PostgreSQL `001..006` via `psql`;
+  - commit/push automatizáveis;
+  - execução em modo não interativo com falha rápida (`ErrorActionPreference = Stop`).
+
+Objetivo:
+- reduzir atrito operacional nas próximas rodadas de migração e validação.
