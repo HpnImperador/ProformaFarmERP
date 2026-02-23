@@ -800,3 +800,15 @@ Foi aplicado ajuste de compatibilidade de dialeto entre SQL Server e PostgreSQL 
 Resultado:
 - pipeline continua estável na trilha SQL Server;
 - base técnica pronta para validação funcional do mesmo pipeline no PostgreSQL do laboratório.
+
+## 57) Hardening de Execução em PostgreSQL Compartilhado (Safe Mode)
+Foi aplicado reforço operacional para execução segura em servidor PostgreSQL compartilhado:
+
+- `scripts/dev-loop.ps1` atualizado com `PostgresSafeMode` habilitado por padrão;
+- validação de allowlist de database (`-AllowedPostgresDatabases`);
+- validação opcional de allowlist de host (`-AllowedPostgresHosts`);
+- confirmação explícita obrigatória para servidor compartilhado (`-AcknowledgeSharedPostgres`);
+- validação de `current_database()` via `psql` antes de aplicar scripts.
+
+Documentação adicionada:
+- `docs/CHECKLIST_PRE_EXECUCAO_POSTGRESQL.md`

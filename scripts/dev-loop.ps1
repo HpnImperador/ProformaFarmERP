@@ -12,6 +12,10 @@ param(
     [switch]$ApplyPostgresScripts,
     [string]$PostgresPsql = "psql",
     [string]$PostgresConnection,
+    [switch]$PostgresSafeMode = $true,
+    [string[]]$AllowedPostgresDatabases = @("proformafarm"),
+    [string[]]$AllowedPostgresHosts = @(),
+    [switch]$AcknowledgeSharedPostgres,
     [string]$CommitMessage,
     [switch]$Push,
     [string]$PushRef = "HEAD",
@@ -45,6 +49,88 @@ function Invoke-CommandChecked {
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao executar: $Command $($Arguments -join ' ')"
     }
+}
+
+function Get-ConnectionValue {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConnectionString,
+        [Parameter(Mandatory = $true)][string[]]$Keys
+    )
+
+    foreach ($key in $Keys) {
+        $pattern = "(?i)(?:^|\\s|;)$key\\s*=\\s*([^;\\s]+)"
+        $match = [regex]::Match($ConnectionString, $pattern)
+        if ($match.Success) {
+            return $match.Groups[1].Value.Trim()
+        }
+    }
+
+    return $null
+}
+
+function Assert-PostgresSafeMode {
+    param(
+        [Parameter(Mandatory = $true)][string]$PsqlCommand,
+        [Parameter(Mandatory = $true)][string]$ConnectionString,
+        [Parameter(Mandatory = $true)][string[]]$Databases,
+        [Parameter(Mandatory = $true)][string[]]$Hosts,
+        [Parameter(Mandatory = $true)][bool]$SharedAck
+    )
+
+    if (-not $SharedAck) {
+        throw "Safe mode bloqueou a execução: informe -AcknowledgeSharedPostgres para confirmar que o servidor PostgreSQL é compartilhado."
+    }
+
+    $targetDb = Get-ConnectionValue -ConnectionString $ConnectionString -Keys @("dbname", "database")
+    if ([string]::IsNullOrWhiteSpace($targetDb)) {
+        throw "Safe mode bloqueou a execução: não foi possível identificar o database na conexão PostgreSQL."
+    }
+
+    $isDbAllowed = $false
+    foreach ($db in $Databases) {
+        if ($targetDb.Equals($db, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $isDbAllowed = $true
+            break
+        }
+    }
+    if (-not $isDbAllowed) {
+        throw "Safe mode bloqueou a execução: database alvo '$targetDb' não está na allowlist: $($Databases -join ', ')."
+    }
+
+    $targetHost = Get-ConnectionValue -ConnectionString $ConnectionString -Keys @("host", "server")
+    if ($Hosts.Count -gt 0) {
+        if ([string]::IsNullOrWhiteSpace($targetHost)) {
+            throw "Safe mode bloqueou a execução: host não identificado na conexão PostgreSQL."
+        }
+
+        $isHostAllowed = $false
+        foreach ($host in $Hosts) {
+            if ($targetHost.Equals($host, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $isHostAllowed = $true
+                break
+            }
+        }
+        if (-not $isHostAllowed) {
+            throw "Safe mode bloqueou a execução: host alvo '$targetHost' não está na allowlist: $($Hosts -join ', ')."
+        }
+    }
+
+    $probeArgs = @($ConnectionString, "-t", "-A", "-c", "select current_database();")
+    $probeOutput = & $PsqlCommand @probeArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Safe mode bloqueou a execução: falha ao validar conexão com psql."
+    }
+
+    $runtimeDb = ($probeOutput | Select-Object -Last 1).Trim()
+    if ([string]::IsNullOrWhiteSpace($runtimeDb)) {
+        throw "Safe mode bloqueou a execução: current_database() retornou vazio."
+    }
+
+    if (-not $runtimeDb.Equals($targetDb, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Safe mode bloqueou a execução: database em runtime '$runtimeDb' difere do alvo '$targetDb'."
+    }
+
+    Write-Host "Safe mode PostgreSQL validado (db=$runtimeDb host=$targetHost)." -ForegroundColor Yellow
 }
 
 function New-ProjectBackup {
@@ -104,6 +190,17 @@ if (-not $SkipBuild) {
 if ($ApplyPostgresScripts) {
     if ([string]::IsNullOrWhiteSpace($PostgresConnection)) {
         throw "Informe -PostgresConnection para aplicar scripts PostgreSQL."
+    }
+
+    if ($PostgresSafeMode) {
+        Invoke-Step -Name "Validação Safe Mode PostgreSQL" -Action {
+            Assert-PostgresSafeMode `
+                -PsqlCommand $PostgresPsql `
+                -ConnectionString $PostgresConnection `
+                -Databases $AllowedPostgresDatabases `
+                -Hosts $AllowedPostgresHosts `
+                -SharedAck $AcknowledgeSharedPostgres.IsPresent
+        }
     }
 
     $scripts = @(

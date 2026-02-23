@@ -91,6 +91,19 @@ dotnet build
 dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj
 ```
 
+### 7.2 Execução segura via dev-loop (safe mode)
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 `
+  -ApplyPostgresScripts `
+  -PostgresConnection "host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>" `
+  -AllowedPostgresDatabases proformafarm `
+  -AllowedPostgresHosts <ubuntu_server_ip> `
+  -AcknowledgeSharedPostgres
+```
+
+Referência operacional:
+- `docs/CHECKLIST_PRE_EXECUCAO_POSTGRESQL.md`
+
 ### 7.1 Execução de scripts no Ubuntu (exemplo com psql)
 ```bash
 psql \"host=<ubuntu_server_ip> port=5432 dbname=proformafarm user=<postgres_user> password=<postgres_password>\" -f docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql
