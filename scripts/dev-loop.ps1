@@ -84,6 +84,18 @@ function Get-ConnectionValue {
     return $null
 }
 
+function Ensure-PostgresConnInfo {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConnectionString
+    )
+
+    if ($ConnectionString -match "(?i)(?:^|[;\s])connect_timeout\s*=") {
+        return $ConnectionString
+    }
+
+    return ($ConnectionString.TrimEnd() + " connect_timeout=8")
+}
+
 function Assert-PostgresSafeMode {
     param(
         [Parameter(Mandatory = $true)][string]$PsqlCommand,
@@ -131,7 +143,8 @@ function Assert-PostgresSafeMode {
         }
     }
 
-    $probeArgs = @($ConnectionString, "-t", "-A", "-c", "select current_database();")
+    $connInfo = Ensure-PostgresConnInfo -ConnectionString $ConnectionString
+    $probeArgs = @($connInfo, "-w", "-t", "-A", "-c", "select current_database();")
     $probeOutput = & $PsqlCommand @probeArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Safe mode bloqueou a execução: falha ao validar conexão com psql."
@@ -189,7 +202,8 @@ GROUP BY "Status"
 ORDER BY metric, key;
 "@
 
-    Invoke-CommandChecked -Command $PsqlCommand -Arguments @($ConnectionString, "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", $sql)
+    $connInfo = Ensure-PostgresConnInfo -ConnectionString $ConnectionString
+    Invoke-CommandChecked -Command $PsqlCommand -Arguments @($connInfo, "-w", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", $sql)
 }
 
 Write-Host "ProformaFarmERP dev-loop iniciado..." -ForegroundColor Green
@@ -250,7 +264,8 @@ if ($ApplyPostgresScripts) {
 
     foreach ($script in $scripts) {
         Invoke-Step -Name "Aplicando $script" -Action {
-            Invoke-CommandChecked -Command $PostgresPsql -Arguments @($PostgresConnection, "-v", "ON_ERROR_STOP=1", "-f", $script)
+            $connInfo = Ensure-PostgresConnInfo -ConnectionString $PostgresConnection
+            Invoke-CommandChecked -Command $PostgresPsql -Arguments @($connInfo, "-w", "-v", "ON_ERROR_STOP=1", "-f", $script)
         }
     }
 }
