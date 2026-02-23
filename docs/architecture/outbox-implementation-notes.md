@@ -33,6 +33,12 @@ Implementar uma infraestrutura transversal de **Domain Events + Outbox Pattern**
 - evento `HelloOutboxDomainEvent`
 - handler `HelloOutboxDomainEventHandler`
 
+5. **Evento de negócio real (Estoque Baixo)**
+- evento `EstoqueBaixoDomainEvent` gerado em transações de saída/ajuste/confirmação de reserva;
+- gravação no Outbox na mesma transação Dapper da movimentação;
+- handler `EstoqueBaixoDomainEventHandler` com persistência em `Core.EstoqueBaixoNotificacao`;
+- idempotência do handler com chave única por `EventId`.
+
 ## Regras obrigatórias aplicadas
 
 - `OrganizacaoId` vem do **OrgContext** e é propagado ao evento.
@@ -48,10 +54,13 @@ Implementar uma infraestrutura transversal de **Domain Events + Outbox Pattern**
 2. Enfileire um evento de prova de vida:
 - `POST /api/outbox/hello-event`
 
-3. Dispare processamento imediato (opcional):
+3. Gere evento de negócio:
+- execute saída/ajuste/confirmação de reserva que deixe saldo líquido no limite de estoque baixo.
+
+4. Dispare processamento imediato (opcional):
 - `POST /api/outbox/processar-agora`
 
-4. Processamento automático:
+5. Processamento automático:
 - executado pelo `OutboxProcessorHostedService` conforme configuração em `Outbox` no `appsettings`.
 
 ## Configuração
@@ -71,4 +80,5 @@ Cobertura implementada:
 - persistência no Outbox;
 - processamento bem-sucedido;
 - retry com backoff;
-- idempotência por `EventId`.
+- idempotência por `EventId`;
+- cenário de negócio `EstoqueBaixo` (geração + processamento + persistência de notificação).

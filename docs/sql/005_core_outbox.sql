@@ -90,3 +90,50 @@ BEGIN
     );
 END
 GO
+
+IF OBJECT_ID(N'Core.EstoqueBaixoNotificacao', N'U') IS NULL
+BEGIN
+    CREATE TABLE Core.EstoqueBaixoNotificacao
+    (
+        Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Core_EstoqueBaixoNotificacao PRIMARY KEY,
+        EventId UNIQUEIDENTIFIER NOT NULL,
+        OrganizacaoId INT NOT NULL,
+        IdUnidadeOrganizacional INT NOT NULL,
+        IdProduto INT NOT NULL,
+        IdLote INT NULL,
+        QuantidadeDisponivel DECIMAL(18,4) NOT NULL,
+        QuantidadeReservada DECIMAL(18,4) NOT NULL,
+        QuantidadeLiquida DECIMAL(18,4) NOT NULL,
+        LimiteEstoqueBaixo DECIMAL(18,4) NOT NULL,
+        OrigemMovimento NVARCHAR(40) NOT NULL,
+        DocumentoReferencia NVARCHAR(120) NULL,
+        CorrelationId UNIQUEIDENTIFIER NULL,
+        DetectadoEmUtc DATETIMEOFFSET(0) NOT NULL,
+        RegistradoEmUtc DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_Core_EstoqueBaixoNotificacao_RegistradoEmUtc DEFAULT (SYSUTCDATETIME())
+    );
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'Core.EstoqueBaixoNotificacao')
+      AND name = N'UX_Core_EstoqueBaixoNotificacao_EventId'
+)
+BEGIN
+    CREATE UNIQUE INDEX UX_Core_EstoqueBaixoNotificacao_EventId
+        ON Core.EstoqueBaixoNotificacao (EventId);
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'Core.EstoqueBaixoNotificacao')
+      AND name = N'IX_Core_EstoqueBaixoNotificacao_Org_Produto'
+)
+BEGIN
+    CREATE INDEX IX_Core_EstoqueBaixoNotificacao_Org_Produto
+        ON Core.EstoqueBaixoNotificacao (OrganizacaoId, IdProduto, DetectadoEmUtc DESC);
+END
+GO

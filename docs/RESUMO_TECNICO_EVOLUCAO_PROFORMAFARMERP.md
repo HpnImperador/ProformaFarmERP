@@ -619,3 +619,35 @@ Cenários cobertos:
 
 Status:
 - suíte filtrada de Outbox executada com sucesso (4 aprovados).
+
+## 43) Evento de Negócio Real no Outbox (Estoque Baixo)
+Foi implementado o primeiro evento de negócio real sobre o pipeline Outbox:
+
+- evento: `EstoqueBaixoDomainEvent`;
+- geração no domínio de estoque para operações que reduzem saldo (saída, ajuste e confirmação de reserva);
+- condição operacional aplicada: saldo líquido (`QuantidadeDisponivel - QuantidadeReservada`) em faixa de estoque baixo;
+- gravação no Outbox dentro da mesma transação Dapper da movimentação.
+
+## 44) Handler Idempotente para Estoque Baixo
+Foi incorporado handler dedicado:
+
+- `EstoqueBaixoDomainEventHandler`;
+- persistência de evidência operacional em `Core.EstoqueBaixoNotificacao`;
+- idempotência garantida por `EventId` com índice único (`UX_Core_EstoqueBaixoNotificacao_EventId`).
+
+Ajustes de banco:
+- atualização de `docs/sql/005_core_outbox.sql` com estrutura da tabela de notificação e índices operacionais.
+
+## 45) Qualidade (Outbox + Evento de Negócio)
+Foi adicionada suíte de integração para o cenário real:
+
+- `ProformaFarm.Application.Tests/Integration/Outbox/OutboxEstoqueBaixoPipelineTests.cs`
+
+Cenário coberto:
+- operação de saída reduz saldo para faixa de estoque baixo;
+- evento é persistido no Outbox;
+- worker processa o evento;
+- notificação é registrada com idempotência por `EventId`.
+
+Status:
+- suíte filtrada de Outbox executada com sucesso (5 aprovados).

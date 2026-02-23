@@ -47,6 +47,7 @@ builder.Services.AddSingleton<IOutboxProcessor, OutboxProcessor>();
 builder.Services.AddHostedService<OutboxProcessorHostedService>();
 builder.Services.AddSingleton<ICorrelationIdAccessor, HttpCorrelationIdAccessor>();
 builder.Services.AddSingleton<IOutboxEventHandler, HelloOutboxDomainEventHandler>();
+builder.Services.AddSingleton<IOutboxEventHandler, EstoqueBaixoDomainEventHandler>();
 builder.Services.Configure<OutboxProcessingOptions>(builder.Configuration.GetSection(OutboxProcessingOptions.SectionName));
 
 var connectionString =

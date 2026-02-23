@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Text.Json;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,9 +10,11 @@ using Dapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ProformaFarm.Application.Common;
+using ProformaFarm.Application.Interfaces.Correlation;
 using ProformaFarm.Application.Interfaces.Context;
 using ProformaFarm.Application.Interfaces.Data;
 using ProformaFarm.Application.Interfaces.Export;
+using ProformaFarm.Domain.Events.Estoque;
 
 namespace ProformaFarm.Controllers;
 
@@ -22,8 +25,10 @@ public sealed class EstoqueController : ControllerBase
 {
     private readonly ISqlConnectionFactory _factory;
     private readonly IOrgContext _orgContext;
+    private readonly ICorrelationIdAccessor _correlationIdAccessor;
     private readonly ICsvExportService _csvExportService;
     private readonly IPdfExportService _pdfExportService;
+    private const decimal LimiteEstoqueBaixoPadrao = 20m;
 
     private const string SaldoSql = @"
 SELECT
@@ -349,6 +354,12 @@ OUTPUT INSERTED.IdMovimentacaoEstoque
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @TipoMovimento, @Quantidade, @DocumentoReferencia, SYSUTCDATETIME());";
 
+    private const string InsertOutboxEventSql = @"
+INSERT INTO Core.OutboxEvent
+    (Id, OrganizacaoId, EventType, Payload, OccurredOnUtc, CorrelationId, Status, RetryCount, NextAttemptUtc)
+VALUES
+    (@Id, @OrganizacaoId, @EventType, @Payload, @OccurredOnUtc, @CorrelationId, 0, 0, @NextAttemptUtc);";
+
     private const string InsertReservaSql = @"
 INSERT INTO dbo.ReservaEstoque
     (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, Quantidade, ExpiraEmUtc, Status, DocumentoReferencia)
@@ -406,11 +417,13 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
     public EstoqueController(
         ISqlConnectionFactory factory,
         IOrgContext orgContext,
+        ICorrelationIdAccessor correlationIdAccessor,
         ICsvExportService csvExportService,
         IPdfExportService pdfExportService)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _orgContext = orgContext ?? throw new ArgumentNullException(nameof(orgContext));
+        _correlationIdAccessor = correlationIdAccessor ?? throw new ArgumentNullException(nameof(correlationIdAccessor));
         _csvExportService = csvExportService ?? throw new ArgumentNullException(nameof(csvExportService));
         _pdfExportService = pdfExportService ?? throw new ArgumentNullException(nameof(pdfExportService));
     }
@@ -1227,6 +1240,10 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             tx,
             cancellationToken: HttpContext.RequestAborted));
 
+        var documentoReferenciaNormalizado = string.IsNullOrWhiteSpace(request.DocumentoReferencia)
+            ? "AJUSTE-MANUAL"
+            : request.DocumentoReferencia.Trim();
+
         var idMovimentacao = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
             InsertMovimentacaoSql,
             new
@@ -1237,10 +1254,23 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 IdLote = request.IdLote,
                 TipoMovimento = "AJUSTE",
                 Quantidade = quantidadeMovimento,
-                DocumentoReferencia = string.IsNullOrWhiteSpace(request.DocumentoReferencia) ? "AJUSTE-MANUAL" : request.DocumentoReferencia.Trim()
+                DocumentoReferencia = documentoReferenciaNormalizado
             },
             tx,
             cancellationToken: HttpContext.RequestAborted));
+
+        await RegistrarEventoEstoqueBaixoSeNecessarioAsync(
+            cn,
+            tx,
+            idOrganizacaoEfetiva.Value,
+            request.IdUnidadeOrganizacional,
+            request.IdProduto,
+            request.IdLote,
+            request.QuantidadeDisponivel,
+            estoque.QuantidadeReservada,
+            "AJUSTE",
+            documentoReferenciaNormalizado,
+            HttpContext.RequestAborted);
 
         tx.Commit();
 
@@ -1564,6 +1594,10 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             ? quantidade
             : (tipoMovimento == "ENTRADA" ? estoque.QuantidadeDisponivel + quantidade : estoque.QuantidadeDisponivel - quantidade);
 
+        var documentoReferenciaNormalizado = string.IsNullOrWhiteSpace(documentoReferencia)
+            ? null
+            : documentoReferencia.Trim();
+
         var idMovimentacao = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
             InsertMovimentacaoSql,
             new
@@ -1574,10 +1608,23 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 IdLote = idLote,
                 TipoMovimento = tipoMovimento,
                 Quantidade = quantidade,
-                DocumentoReferencia = string.IsNullOrWhiteSpace(documentoReferencia) ? null : documentoReferencia.Trim()
+                DocumentoReferencia = documentoReferenciaNormalizado
             },
             tx,
             cancellationToken: ct));
+
+        await RegistrarEventoEstoqueBaixoSeNecessarioAsync(
+            cn,
+            tx,
+            idOrganizacaoEfetiva.Value,
+            idUnidadeOrganizacional,
+            idProduto,
+            idLote,
+            quantidadeAtualFinal,
+            quantidadeReservada,
+            tipoMovimento,
+            documentoReferenciaNormalizado,
+            ct);
 
         tx.Commit();
 
@@ -1742,6 +1789,19 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 },
                 tx,
                 cancellationToken: HttpContext.RequestAborted));
+
+            await RegistrarEventoEstoqueBaixoSeNecessarioAsync(
+                cn,
+                tx,
+                reserva.IdOrganizacao,
+                reserva.IdUnidadeOrganizacional,
+                reserva.IdProduto,
+                reserva.IdLote,
+                novaDisponivel,
+                novaReservada,
+                "RESERVA_CONFIRMADA",
+                $"RESERVA:{idReservaEstoque}",
+                HttpContext.RequestAborted);
         }
 
         tx.Commit();
@@ -1757,6 +1817,55 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             Status = acao,
             ExpiraEmUtc = reserva.ExpiraEmUtc
         }, $"Reserva {acao.ToLowerInvariant()} com sucesso."));
+    }
+
+    private async Task RegistrarEventoEstoqueBaixoSeNecessarioAsync(
+        IDbConnection cn,
+        IDbTransaction tx,
+        int idOrganizacao,
+        int idUnidadeOrganizacional,
+        int idProduto,
+        int? idLote,
+        decimal quantidadeDisponivel,
+        decimal quantidadeReservada,
+        string origemMovimento,
+        string? documentoReferencia,
+        CancellationToken ct)
+    {
+        if (string.Equals(origemMovimento, "ENTRADA", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var quantidadeLiquida = quantidadeDisponivel - quantidadeReservada;
+        if (quantidadeLiquida > LimiteEstoqueBaixoPadrao)
+            return;
+
+        var evt = EstoqueBaixoDomainEvent.Create(
+            organizacaoId: idOrganizacao,
+            idUnidadeOrganizacional: idUnidadeOrganizacional,
+            idProduto: idProduto,
+            idLote: idLote,
+            quantidadeDisponivel: quantidadeDisponivel,
+            quantidadeReservada: quantidadeReservada,
+            quantidadeLiquida: quantidadeLiquida,
+            limiteEstoqueBaixo: LimiteEstoqueBaixoPadrao,
+            origemMovimento: origemMovimento,
+            documentoReferencia: documentoReferencia,
+            correlationId: _correlationIdAccessor.GetCurrentCorrelationId());
+
+        await cn.ExecuteAsync(new CommandDefinition(
+            InsertOutboxEventSql,
+            new
+            {
+                Id = evt.EventId,
+                OrganizacaoId = evt.OrganizacaoId,
+                EventType = typeof(EstoqueBaixoDomainEvent).FullName!,
+                Payload = JsonSerializer.Serialize(evt),
+                OccurredOnUtc = evt.DetectadoEmUtc,
+                CorrelationId = evt.CorrelationId,
+                NextAttemptUtc = DateTimeOffset.MinValue
+            },
+            tx,
+            cancellationToken: ct));
     }
 
     private async Task LiberarReservasExpiradasAsync(
