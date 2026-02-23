@@ -61,26 +61,30 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<EventRelayHostedService>();
 }
 
-var connectionString =
-    builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' nÃ£o configurada.");
+var databaseProvider = builder.Configuration["Database:Provider"] ?? "SqlServer";
+var connectionString = ResolveConnectionString(builder.Configuration, databaseProvider);
 
 builder.Services.AddSingleton<ISqlConnectionFactory>(
-    new SqlConnectionFactory(connectionString)
+    new SqlConnectionFactory(databaseProvider, connectionString)
 );
 
 builder.Services.AddDbContext<ProformaFarmDbContext>((sp, options) =>
 {
-    options.UseSqlServer(connectionString);
+    if (IsPostgresProvider(databaseProvider))
+    {
+        options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure());
+    }
+    else
+    {
+        options.UseSqlServer(connectionString, sqlServer => sqlServer.EnableRetryOnFailure());
+    }
+
     options.AddInterceptors(sp.GetRequiredService<OutboxSaveChangesInterceptor>());
 });
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IOrgContext, OrgContext>();
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
-
-var connString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("ConnectionString 'DefaultConnection' nÃ£o encontrada.");
 
 var jwtIssuer = builder.Configuration["Jwt:Issuer"]
     ?? throw new InvalidOperationException("Jwt:Issuer nÃ£o encontrado.");
@@ -209,6 +213,28 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static string ResolveConnectionString(IConfiguration configuration, string provider)
+{
+    if (IsPostgresProvider(provider))
+    {
+        var pgConnection = configuration.GetConnectionString("PostgresConnection");
+        if (!string.IsNullOrWhiteSpace(pgConnection))
+            return pgConnection;
+    }
+
+    var defaultConnection = configuration.GetConnectionString("DefaultConnection");
+    if (!string.IsNullOrWhiteSpace(defaultConnection))
+        return defaultConnection;
+
+    throw new InvalidOperationException("Connection string 'DefaultConnection' nÃ£o configurada.");
+}
+
+static bool IsPostgresProvider(string provider)
+{
+    return provider.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+        || provider.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
+}
 
 // Plano (pseudocÃ³digo):
 // 1) Garantir que exista um tipo chamado `Program` no namespace `ProformaFarm`.

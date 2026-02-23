@@ -174,8 +174,13 @@ Data de referencia desta fotografia: **22 de fevereiro de 2026**.
 2. evolucao operacional:
    - qualidade e bloqueios por lote;
    - integracoes e workflow.
-3. governanca:
-   - BI, trilha de auditoria avancada, controladoria.
+3. Fase 3: Governança & Guardian Security:
+   - BI, trilha de auditoria avançada, controladoria;
+   - módulo Guardian para segurança, resiliência e governança de dados;
+   - Resiliência Proativa com Módulo Guardian (Monitoramento de Backups e Criptografia de Ponta-a-Ponta);
+   - prontidão para auditorias internacionais desde a base arquitetural.
+4. trilha de migração de banco:
+   - migração planejada de SQL Server para PostgreSQL em fase paralela controlada.
 
 ## 7) Como este documento sera usado
 
@@ -201,6 +206,7 @@ Sempre que houver incremento relevante:
 - `docs/DOMAINS_MAP.md`
 - `docs/ESTRATEGIA_EXPORTACOES_CSV_PDF.md`
 - `docs/INDICES_ESTRUTURA_ORGANIZACIONAL.md`
+- `docs/MIGRACAO_SQLSERVER_PARA_POSTGRESQL.md`
 - `docs/sql/001_estrutura_organizacional.sql`
 - `docs/sql/002_seed_estrutura_organizacional.sql`
 - `docs/sql/003_idx_lotacaousuario_orgcontext.sql`

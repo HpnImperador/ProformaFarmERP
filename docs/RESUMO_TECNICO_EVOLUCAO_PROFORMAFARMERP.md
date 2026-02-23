@@ -716,3 +716,37 @@ Foi adicionada suíte de integração:
 Cenários cobertos:
 - entrega com sucesso e idempotência da linha de entrega;
 - retry com backoff e transição para status de falha ao exceder tentativas.
+
+## 52) Implementação do Core Security Guardian (Diretriz e Base Técnica)
+Foi estruturada a base documental do novo domínio core de segurança, resiliência e governança de dados:
+
+- pasta dedicada: `docs/Módulo Guardian/`;
+- especificação funcional e técnica do módulo Guardian;
+- diretrizes de criptografia por tenant com chave vinculada ao contexto organizacional;
+- diretrizes de trilha de auditoria e blindagem de dados sensíveis.
+
+Integração com arquitetura atual:
+- o `OrgContext` passa a ser referência obrigatória para segregação de chaves e trilhas de segurança por organização;
+- o pipeline `Outbox + Event Relay` foi consolidado como base para monitoramento passivo e detecção proativa por eventos;
+- a evolução prevê criptografia dinâmica em campos marcados com `[SensitiveData]` e monitoramento contínuo de resiliência/backup.
+
+Referências:
+- `docs/Módulo Guardian/Segurança, Resiliência e Governança de Dados.md`
+- `docs/Módulo Guardian/PROFORMAFARM_GUARDIAN_SPEC.md`
+- `docs/Módulo Guardian/GUARDIAN_TECHNICAL_DEEP_DIVE.md`
+- `docs/Módulo Guardian/DIRETRIZES_ARQUITETURAIS_OBRIGATORIAS_v2.md`
+
+## 53) Fundação da Trilha PostgreSQL (Migração de Banco)
+Foi iniciado o preparo técnico para migração de SQL Server para PostgreSQL com coexistência controlada:
+
+- alternância de provider por configuração (`Database:Provider`);
+- seleção dinâmica de `UseSqlServer` ou `UseNpgsql` no `Program.cs`;
+- `ISqlConnectionFactory` mantido com suporte aos dois provedores para Dapper (`SqlConnection`/`NpgsqlConnection`);
+- inclusão de `PostgresConnection` em `appsettings.json` e `appsettings.Development.json`.
+
+Documentação oficial de migração criada:
+- `docs/MIGRACAO_SQLSERVER_PARA_POSTGRESQL.md`
+
+Diretriz operacional:
+- SQL Server permanece como trilha estável;
+- PostgreSQL evolui em trilha paralela até validação completa de build/testes e scripts.
