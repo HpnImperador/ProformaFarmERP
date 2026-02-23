@@ -59,10 +59,25 @@ function Get-ConnectionValue {
     )
 
     foreach ($key in $Keys) {
-        $pattern = "(?i)(?:^|\\s|;)$key\\s*=\\s*([^;\\s]+)"
+        $pattern = "(?i)(?:^|[;\\s])$key\\s*=\\s*([^;\\s]+)"
         $match = [regex]::Match($ConnectionString, $pattern)
         if ($match.Success) {
-            return $match.Groups[1].Value.Trim()
+            return $match.Groups[1].Value.Trim().Trim("'`"")
+        }
+    }
+
+    # Fallback: parse tokenizado para cobrir formatos com espaço e/ou ';'
+    $normalized = $ConnectionString -replace ";", " "
+    $tokens = $normalized -split "\s+" | Where-Object { $_ -and $_.Contains("=") }
+    foreach ($token in $tokens) {
+        $parts = $token -split "=", 2
+        if ($parts.Count -ne 2) { continue }
+        $k = $parts[0].Trim()
+        $v = $parts[1].Trim().Trim("'`"")
+        foreach ($key in $Keys) {
+            if ($k.Equals($key, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return $v
+            }
         }
     }
 
