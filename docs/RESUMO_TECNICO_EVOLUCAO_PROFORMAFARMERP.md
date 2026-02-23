@@ -864,3 +864,22 @@ Foi concluída a segunda etapa de compatibilização para PostgreSQL nos fluxos 
 Validação:
 - `dotnet build` com sucesso;
 - `dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj --filter "FullyQualifiedName~Integration.Organizacao|FullyQualifiedName~Integration.Estoque|FullyQualifiedName~Integration.Outbox"` com sucesso (67 testes aprovados).
+
+## 61) Refatoração Prioridade 2 (Seed + DbContext Defaults/Filtros)
+Foi executada a etapa de compatibilização dos pontos restantes mapeados para seed e modelagem EF:
+
+- `SeedController`:
+  - remoção de dependências diretas de T-SQL (`IF NOT EXISTS`, `DECLARE`, `TOP 1`, `OUTPUT INSERTED`);
+  - fluxo idempotente movido para C# com operações portáveis via Dapper;
+  - SQL por provider para criação de admin (`RETURNING` no PostgreSQL e `OUTPUT INSERTED` no SQL Server).
+- `ProformaFarmDbContext`:
+  - filtro único de `LotacaoUsuario` ajustado por provider:
+    - SQL Server: `[Principal] = 1 AND [Ativa] = 1`;
+    - PostgreSQL: `"Principal" = TRUE AND "Ativa" = TRUE`.
+  - valor default de `OutboxHelloProbe.CriadoEmUtc` ajustado por provider:
+    - SQL Server: `SYSUTCDATETIME()`;
+    - PostgreSQL: `TIMEZONE('UTC', NOW())`.
+
+Validação:
+- `dotnet build` com sucesso;
+- `dotnet test ProformaFarm.Application.Tests/ProformaFarm.Application.Tests.csproj --filter "FullyQualifiedName~Integration.Organizacao|FullyQualifiedName~Integration.Estoque|FullyQualifiedName~Integration.Outbox"` com sucesso (67 testes aprovados).

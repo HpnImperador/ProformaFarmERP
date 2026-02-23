@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using ProformaFarm.Domain.Entities;
 using ProformaFarm.Infrastructure.Outbox;
+using System;
 
 namespace ProformaFarm.Infrastructure.Data;
 
@@ -29,6 +30,7 @@ public class ProformaFarmDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        var isPostgres = Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
 
         // Tabelas já existem no banco: Usuario, Perfil, UsuarioPerfil
         modelBuilder.Entity<Usuario>().ToTable("Usuario").HasKey(x => x.IdUsuario);
@@ -118,7 +120,9 @@ public class ProformaFarmDbContext : DbContext
         {
             entity.ToTable("LotacaoUsuario").HasKey(x => x.IdLotacaoUsuario);
             entity.HasIndex(x => new { x.IdUsuario, x.Principal, x.Ativa })
-                .HasFilter("[Principal] = 1 AND [Ativa] = 1")
+                .HasFilter(isPostgres
+                    ? "\"Principal\" = TRUE AND \"Ativa\" = TRUE"
+                    : "[Principal] = 1 AND [Ativa] = 1")
                 .IsUnique();
 
             entity
@@ -275,7 +279,7 @@ public class ProformaFarmDbContext : DbContext
         {
             entity.ToTable("OutboxHelloProbe", "Core").HasKey(x => x.IdOutboxHelloProbe);
             entity.Property(x => x.NomeEvento).HasMaxLength(120).IsRequired();
-            entity.Property(x => x.CriadoEmUtc).HasDefaultValueSql("SYSUTCDATETIME()");
+            entity.Property(x => x.CriadoEmUtc).HasDefaultValueSql(isPostgres ? "TIMEZONE('UTC', NOW())" : "SYSUTCDATETIME()");
         });
 
         modelBuilder.Entity<OutboxEventEntity>(entity =>
@@ -289,3 +293,6 @@ public class ProformaFarmDbContext : DbContext
         });
     }
 }
+
+
+
