@@ -28,11 +28,17 @@ public sealed class HelloOutboxDomainEventHandler : IOutboxEventHandler
             throw new InvalidOperationException("Falha simulada para validar retry/backoff do Outbox.");
 
         await connection.ExecuteAsync(new CommandDefinition(
-            @"UPDATE Core.OutboxHelloProbe
-              SET ProcessedCount = ProcessedCount + 1,
-                  UltimoProcessamentoUtc = SYSUTCDATETIME()
-              WHERE IdOutboxHelloProbe = @IdOutboxHelloProbe
-                AND OrganizacaoId = @OrganizacaoId;",
+            connection.GetType().Name.Contains("Npgsql", StringComparison.OrdinalIgnoreCase)
+                ? @"UPDATE ""Core"".""OutboxHelloProbe""
+                    SET ""ProcessedCount"" = ""ProcessedCount"" + 1,
+                        ""UltimoProcessamentoUtc"" = CURRENT_TIMESTAMP
+                    WHERE ""IdOutboxHelloProbe"" = @IdOutboxHelloProbe
+                      AND ""OrganizacaoId"" = @OrganizacaoId;"
+                : @"UPDATE Core.OutboxHelloProbe
+                    SET ProcessedCount = ProcessedCount + 1,
+                        UltimoProcessamentoUtc = SYSUTCDATETIME()
+                    WHERE IdOutboxHelloProbe = @IdOutboxHelloProbe
+                      AND OrganizacaoId = @OrganizacaoId;",
             new
             {
                 evt.IdOutboxHelloProbe,

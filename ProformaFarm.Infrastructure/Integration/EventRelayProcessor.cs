@@ -25,6 +25,7 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
     private readonly IIntegrationEventTransport _transport;
     private readonly IntegrationRelayOptions _options;
     private readonly ILogger<EventRelayProcessor> _logger;
+    private readonly bool _isPostgres;
 
     public EventRelayProcessor(
         ISqlConnectionFactory connectionFactory,
@@ -36,6 +37,8 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
         _transport = transport;
         _options = options.Value;
         _logger = logger;
+        _isPostgres = connectionFactory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || connectionFactory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<int> ProcessPendingAsync(CancellationToken cancellationToken = default)
@@ -47,18 +50,7 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
         await SeedPendingDeliveriesAsync(connection, cancellationToken);
 
         var rows = (await connection.QueryAsync<DeliveryRow>(new CommandDefinition(
-            @";WITH cte AS (
-                SELECT TOP (@BatchSize) *
-                FROM Integration.IntegrationDeliveryLog WITH (UPDLOCK, READPAST, ROWLOCK)
-                WHERE (Status = @PendingStatus OR Status = @FailedStatus)
-                  AND NextAttemptUtc <= SYSUTCDATETIME()
-                  AND (LockedUntilUtc IS NULL OR LockedUntilUtc < SYSUTCDATETIME())
-                ORDER BY CriadoEmUtc
-            )
-            UPDATE cte
-            SET Status = @ProcessingStatus,
-                LockedUntilUtc = DATEADD(SECOND, @LockSeconds, SYSUTCDATETIME())
-            OUTPUT INSERTED.IdIntegrationDeliveryLog, INSERTED.OutboxEventId, INSERTED.IdIntegrationClient, INSERTED.OrganizacaoId, INSERTED.AttemptCount;",
+            GetClaimPendingSql(),
             new
             {
                 BatchSize = _options.BatchSize,
@@ -85,29 +77,7 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
     private async Task SeedPendingDeliveriesAsync(IDbConnection connection, CancellationToken cancellationToken)
     {
         await connection.ExecuteAsync(new CommandDefinition(
-            @"INSERT INTO Integration.IntegrationDeliveryLog
-                (OutboxEventId, IdIntegrationClient, OrganizacaoId, EventType, CorrelationId, PayloadHash, Status, AttemptCount, NextAttemptUtc)
-              SELECT
-                e.Id,
-                c.IdIntegrationClient,
-                e.OrganizacaoId,
-                e.EventType,
-                e.CorrelationId,
-                CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', CAST(e.Payload AS NVARCHAR(MAX))), 2),
-                @PendingStatus,
-                0,
-                DATEADD(SECOND, -1, SYSUTCDATETIME())
-              FROM Core.OutboxEvent e
-              INNER JOIN Integration.IntegrationClient c
-                ON c.OrganizacaoId = e.OrganizacaoId
-               AND c.Ativo = 1
-              WHERE e.Status = @OutboxProcessedStatus
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM Integration.IntegrationDeliveryLog l
-                    WHERE l.OutboxEventId = e.Id
-                      AND l.IdIntegrationClient = c.IdIntegrationClient
-                );",
+            GetSeedPendingSql(),
             new
             {
                 PendingStatus = DeliveryStatus.Pending,
@@ -119,23 +89,7 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
     private async Task<bool> ProcessSingleAsync(IDbConnection connection, DeliveryRow row, CancellationToken cancellationToken)
     {
         var data = await connection.QueryFirstOrDefaultAsync<DeliveryDataRow>(new CommandDefinition(
-            @"SELECT TOP (1)
-                l.IdIntegrationDeliveryLog,
-                l.AttemptCount,
-                l.OutboxEventId,
-                l.OrganizacaoId,
-                l.IdIntegrationClient,
-                l.CorrelationId,
-                l.EventType,
-                e.Payload,
-                c.WebhookUrl,
-                c.SecretKey
-              FROM Integration.IntegrationDeliveryLog l
-              INNER JOIN Core.OutboxEvent e ON e.Id = l.OutboxEventId
-              INNER JOIN Integration.IntegrationClient c
-                ON c.IdIntegrationClient = l.IdIntegrationClient
-               AND c.OrganizacaoId = l.OrganizacaoId
-              WHERE l.IdIntegrationDeliveryLog = @Id;",
+            GetLoadDeliveryDataSql(),
             new { Id = row.IdIntegrationDeliveryLog },
             cancellationToken: cancellationToken));
 
@@ -160,15 +114,7 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
         if (result.Success)
         {
             await connection.ExecuteAsync(new CommandDefinition(
-                @"UPDATE Integration.IntegrationDeliveryLog
-                  SET Status = @SentStatus,
-                      AttemptCount = AttemptCount + 1,
-                      LastAttemptUtc = SYSUTCDATETIME(),
-                      LockedUntilUtc = NULL,
-                      LastError = NULL,
-                      ResponseStatusCode = @ResponseStatusCode,
-                      ResponseBody = @ResponseBody
-                  WHERE IdIntegrationDeliveryLog = @Id;",
+                GetMarkSentSql(),
                 new
                 {
                     Id = row.IdIntegrationDeliveryLog,
@@ -206,16 +152,7 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
         var error = result.ErrorMessage ?? $"HTTP {result.StatusCode}";
 
         await connection.ExecuteAsync(new CommandDefinition(
-            @"UPDATE Integration.IntegrationDeliveryLog
-              SET Status = @Status,
-                  AttemptCount = @AttemptCount,
-                  LastAttemptUtc = SYSUTCDATETIME(),
-                  NextAttemptUtc = @NextAttemptUtc,
-                  LockedUntilUtc = NULL,
-                  LastError = @LastError,
-                  ResponseStatusCode = @ResponseStatusCode,
-                  ResponseBody = @ResponseBody
-              WHERE IdIntegrationDeliveryLog = @Id;",
+            GetMarkRetryableFailureSql(),
             new
             {
                 Id = row.IdIntegrationDeliveryLog,
@@ -246,12 +183,7 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
         CancellationToken cancellationToken)
     {
         await connection.ExecuteAsync(new CommandDefinition(
-            @"UPDATE Integration.IntegrationDeliveryLog
-              SET Status = @FailedStatus,
-                  LastAttemptUtc = SYSUTCDATETIME(),
-                  LockedUntilUtc = NULL,
-                  LastError = @LastError
-              WHERE IdIntegrationDeliveryLog = @Id;",
+            GetMarkTerminalFailureSql(),
             new
             {
                 Id = deliveryId,
@@ -259,6 +191,204 @@ public sealed class EventRelayProcessor : IEventRelayProcessor
                 LastError = Truncate(error, 1900)
             },
             cancellationToken: cancellationToken));
+    }
+
+    private string GetClaimPendingSql()
+    {
+        if (_isPostgres)
+        {
+            return @"WITH cte AS (
+                        SELECT ""IdIntegrationDeliveryLog""
+                        FROM ""Integration"".""IntegrationDeliveryLog""
+                        WHERE (""Status"" = @PendingStatus OR ""Status"" = @FailedStatus)
+                          AND ""NextAttemptUtc"" <= CURRENT_TIMESTAMP
+                          AND (""LockedUntilUtc"" IS NULL OR ""LockedUntilUtc"" < CURRENT_TIMESTAMP)
+                        ORDER BY ""CriadoEmUtc""
+                        LIMIT @BatchSize
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE ""Integration"".""IntegrationDeliveryLog"" l
+                    SET ""Status"" = @ProcessingStatus,
+                        ""LockedUntilUtc"" = CURRENT_TIMESTAMP + (@LockSeconds || ' seconds')::interval
+                    FROM cte
+                    WHERE l.""IdIntegrationDeliveryLog"" = cte.""IdIntegrationDeliveryLog""
+                    RETURNING l.""IdIntegrationDeliveryLog"", l.""OutboxEventId"", l.""IdIntegrationClient"", l.""OrganizacaoId"", l.""AttemptCount"", l.""CorrelationId"";";
+        }
+
+        return @";WITH cte AS (
+                    SELECT TOP (@BatchSize) *
+                    FROM Integration.IntegrationDeliveryLog WITH (UPDLOCK, READPAST, ROWLOCK)
+                    WHERE (Status = @PendingStatus OR Status = @FailedStatus)
+                      AND NextAttemptUtc <= SYSUTCDATETIME()
+                      AND (LockedUntilUtc IS NULL OR LockedUntilUtc < SYSUTCDATETIME())
+                    ORDER BY CriadoEmUtc
+                  )
+                  UPDATE cte
+                  SET Status = @ProcessingStatus,
+                      LockedUntilUtc = DATEADD(SECOND, @LockSeconds, SYSUTCDATETIME())
+                  OUTPUT INSERTED.IdIntegrationDeliveryLog, INSERTED.OutboxEventId, INSERTED.IdIntegrationClient, INSERTED.OrganizacaoId, INSERTED.AttemptCount, INSERTED.CorrelationId;";
+    }
+
+    private string GetSeedPendingSql()
+    {
+        if (_isPostgres)
+        {
+            return @"INSERT INTO ""Integration"".""IntegrationDeliveryLog""
+                        (""OutboxEventId"", ""IdIntegrationClient"", ""OrganizacaoId"", ""EventType"", ""CorrelationId"", ""PayloadHash"", ""Status"", ""AttemptCount"", ""NextAttemptUtc"")
+                      SELECT
+                        e.""Id"",
+                        c.""IdIntegrationClient"",
+                        e.""OrganizacaoId"",
+                        e.""EventType"",
+                        e.""CorrelationId"",
+                        md5(e.""Payload""),
+                        @PendingStatus,
+                        0,
+                        CURRENT_TIMESTAMP - interval '1 second'
+                      FROM ""Core"".""OutboxEvent"" e
+                      INNER JOIN ""Integration"".""IntegrationClient"" c
+                        ON c.""OrganizacaoId"" = e.""OrganizacaoId""
+                       AND c.""Ativo"" = true
+                      WHERE e.""Status"" = @OutboxProcessedStatus
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM ""Integration"".""IntegrationDeliveryLog"" l
+                            WHERE l.""OutboxEventId"" = e.""Id""
+                              AND l.""IdIntegrationClient"" = c.""IdIntegrationClient""
+                        );";
+        }
+
+        return @"INSERT INTO Integration.IntegrationDeliveryLog
+                    (OutboxEventId, IdIntegrationClient, OrganizacaoId, EventType, CorrelationId, PayloadHash, Status, AttemptCount, NextAttemptUtc)
+                  SELECT
+                    e.Id,
+                    c.IdIntegrationClient,
+                    e.OrganizacaoId,
+                    e.EventType,
+                    e.CorrelationId,
+                    CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', CAST(e.Payload AS NVARCHAR(MAX))), 2),
+                    @PendingStatus,
+                    0,
+                    DATEADD(SECOND, -1, SYSUTCDATETIME())
+                  FROM Core.OutboxEvent e
+                  INNER JOIN Integration.IntegrationClient c
+                    ON c.OrganizacaoId = e.OrganizacaoId
+                   AND c.Ativo = 1
+                  WHERE e.Status = @OutboxProcessedStatus
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM Integration.IntegrationDeliveryLog l
+                        WHERE l.OutboxEventId = e.Id
+                          AND l.IdIntegrationClient = c.IdIntegrationClient
+                    );";
+    }
+
+    private string GetLoadDeliveryDataSql()
+    {
+        if (_isPostgres)
+        {
+            return @"SELECT
+                        l.""IdIntegrationDeliveryLog"",
+                        l.""AttemptCount"",
+                        l.""OutboxEventId"",
+                        l.""OrganizacaoId"",
+                        l.""IdIntegrationClient"",
+                        l.""CorrelationId"",
+                        l.""EventType"",
+                        e.""Payload"",
+                        c.""WebhookUrl"",
+                        c.""SecretKey""
+                      FROM ""Integration"".""IntegrationDeliveryLog"" l
+                      INNER JOIN ""Core"".""OutboxEvent"" e ON e.""Id"" = l.""OutboxEventId""
+                      INNER JOIN ""Integration"".""IntegrationClient"" c
+                        ON c.""IdIntegrationClient"" = l.""IdIntegrationClient""
+                       AND c.""OrganizacaoId"" = l.""OrganizacaoId""
+                      WHERE l.""IdIntegrationDeliveryLog"" = @Id
+                      LIMIT 1;";
+        }
+
+        return @"SELECT TOP (1)
+                    l.IdIntegrationDeliveryLog,
+                    l.AttemptCount,
+                    l.OutboxEventId,
+                    l.OrganizacaoId,
+                    l.IdIntegrationClient,
+                    l.CorrelationId,
+                    l.EventType,
+                    e.Payload,
+                    c.WebhookUrl,
+                    c.SecretKey
+                  FROM Integration.IntegrationDeliveryLog l
+                  INNER JOIN Core.OutboxEvent e ON e.Id = l.OutboxEventId
+                  INNER JOIN Integration.IntegrationClient c
+                    ON c.IdIntegrationClient = l.IdIntegrationClient
+                   AND c.OrganizacaoId = l.OrganizacaoId
+                  WHERE l.IdIntegrationDeliveryLog = @Id;";
+    }
+
+    private string GetMarkSentSql()
+    {
+        return _isPostgres
+            ? @"UPDATE ""Integration"".""IntegrationDeliveryLog""
+                SET ""Status"" = @SentStatus,
+                    ""AttemptCount"" = ""AttemptCount"" + 1,
+                    ""LastAttemptUtc"" = CURRENT_TIMESTAMP,
+                    ""LockedUntilUtc"" = NULL,
+                    ""LastError"" = NULL,
+                    ""ResponseStatusCode"" = @ResponseStatusCode,
+                    ""ResponseBody"" = @ResponseBody
+                WHERE ""IdIntegrationDeliveryLog"" = @Id;"
+            : @"UPDATE Integration.IntegrationDeliveryLog
+                SET Status = @SentStatus,
+                    AttemptCount = AttemptCount + 1,
+                    LastAttemptUtc = SYSUTCDATETIME(),
+                    LockedUntilUtc = NULL,
+                    LastError = NULL,
+                    ResponseStatusCode = @ResponseStatusCode,
+                    ResponseBody = @ResponseBody
+                WHERE IdIntegrationDeliveryLog = @Id;";
+    }
+
+    private string GetMarkRetryableFailureSql()
+    {
+        return _isPostgres
+            ? @"UPDATE ""Integration"".""IntegrationDeliveryLog""
+                SET ""Status"" = @Status,
+                    ""AttemptCount"" = @AttemptCount,
+                    ""LastAttemptUtc"" = CURRENT_TIMESTAMP,
+                    ""NextAttemptUtc"" = @NextAttemptUtc,
+                    ""LockedUntilUtc"" = NULL,
+                    ""LastError"" = @LastError,
+                    ""ResponseStatusCode"" = @ResponseStatusCode,
+                    ""ResponseBody"" = @ResponseBody
+                WHERE ""IdIntegrationDeliveryLog"" = @Id;"
+            : @"UPDATE Integration.IntegrationDeliveryLog
+                SET Status = @Status,
+                    AttemptCount = @AttemptCount,
+                    LastAttemptUtc = SYSUTCDATETIME(),
+                    NextAttemptUtc = @NextAttemptUtc,
+                    LockedUntilUtc = NULL,
+                    LastError = @LastError,
+                    ResponseStatusCode = @ResponseStatusCode,
+                    ResponseBody = @ResponseBody
+                WHERE IdIntegrationDeliveryLog = @Id;";
+    }
+
+    private string GetMarkTerminalFailureSql()
+    {
+        return _isPostgres
+            ? @"UPDATE ""Integration"".""IntegrationDeliveryLog""
+                SET ""Status"" = @FailedStatus,
+                    ""LastAttemptUtc"" = CURRENT_TIMESTAMP,
+                    ""LockedUntilUtc"" = NULL,
+                    ""LastError"" = @LastError
+                WHERE ""IdIntegrationDeliveryLog"" = @Id;"
+            : @"UPDATE Integration.IntegrationDeliveryLog
+                SET Status = @FailedStatus,
+                    LastAttemptUtc = SYSUTCDATETIME(),
+                    LockedUntilUtc = NULL,
+                    LastError = @LastError
+                WHERE IdIntegrationDeliveryLog = @Id;";
     }
 
     private static string? ComputeSignature(string? secretKey, string payload)

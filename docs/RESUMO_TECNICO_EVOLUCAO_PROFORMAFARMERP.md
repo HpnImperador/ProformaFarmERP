@@ -783,3 +783,20 @@ O script de automação de desenvolvimento foi evoluído para suportar fluxo com
 
 Objetivo:
 - reduzir atrito operacional nas próximas rodadas de migração e validação.
+
+## 56) Compatibilização de Dialeto SQL no Pipeline Outbox/Event Relay
+Foi aplicado ajuste de compatibilidade de dialeto entre SQL Server e PostgreSQL no código do pipeline de eventos:
+
+- `ISqlConnectionFactory` passou a expor `ProviderName` para decisões de dialeto em runtime;
+- `OutboxProcessor` agora seleciona SQL por provider para:
+  - claim concorrente de eventos pendentes;
+  - marcação de processamento;
+  - idempotência e tratamento de falhas/retry;
+- `EventRelayProcessor` agora seleciona SQL por provider para:
+  - seed de entregas pendentes;
+  - claim concorrente com lock;
+  - atualização de sucesso/falha/retry.
+
+Resultado:
+- pipeline continua estável na trilha SQL Server;
+- base técnica pronta para validação funcional do mesmo pipeline no PostgreSQL do laboratório.

@@ -25,6 +25,7 @@ public sealed class OutboxProcessor : IOutboxProcessor
     private readonly IReadOnlyDictionary<string, IOutboxEventHandler> _handlers;
     private readonly OutboxProcessingOptions _options;
     private readonly ILogger<OutboxProcessor> _logger;
+    private readonly bool _isPostgres;
 
     public OutboxProcessor(
         ISqlConnectionFactory connectionFactory,
@@ -36,6 +37,8 @@ public sealed class OutboxProcessor : IOutboxProcessor
         _handlers = handlers.ToDictionary(x => x.EventType, StringComparer.Ordinal);
         _options = options.Value;
         _logger = logger;
+        _isPostgres = connectionFactory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || connectionFactory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<int> ProcessPendingAsync(CancellationToken cancellationToken = default)
@@ -45,18 +48,7 @@ public sealed class OutboxProcessor : IOutboxProcessor
             connection.Open();
 
         var events = (await connection.QueryAsync<OutboxEventRow>(new CommandDefinition(
-            @";WITH cte AS (
-                SELECT TOP (@BatchSize) *
-                FROM Core.OutboxEvent WITH (UPDLOCK, READPAST, ROWLOCK)
-                WHERE Status = @PendingStatus
-                  AND NextAttemptUtc <= SYSUTCDATETIME()
-                  AND (LockedUntilUtc IS NULL OR LockedUntilUtc < SYSUTCDATETIME())
-                ORDER BY OccurredOnUtc
-            )
-            UPDATE cte
-            SET Status = @ProcessingStatus,
-                LockedUntilUtc = DATEADD(SECOND, @LockSeconds, SYSUTCDATETIME())
-            OUTPUT INSERTED.Id, INSERTED.OrganizacaoId, INSERTED.EventType, INSERTED.Payload, INSERTED.CorrelationId, INSERTED.RetryCount;",
+            GetClaimPendingSql(),
             new
             {
                 BatchSize = _options.BatchSize,
@@ -111,19 +103,13 @@ public sealed class OutboxProcessor : IOutboxProcessor
             await handler.HandleAsync(payload, context, connection, tx, cancellationToken);
 
             await connection.ExecuteAsync(new CommandDefinition(
-                @"INSERT INTO Core.OutboxProcessedEvent (EventId, HandlerName, ProcessedOnUtc)
-                  VALUES (@EventId, @HandlerName, SYSUTCDATETIME());",
+                GetInsertProcessedSql(),
                 new { EventId = row.Id, HandlerName = handler.HandlerName },
                 tx,
                 cancellationToken: cancellationToken));
 
             await connection.ExecuteAsync(new CommandDefinition(
-                @"UPDATE Core.OutboxEvent
-                  SET Status = @ProcessedStatus,
-                      ProcessedOnUtc = SYSUTCDATETIME(),
-                      LockedUntilUtc = NULL,
-                      LastError = NULL
-                  WHERE Id = @EventId;",
+                GetMarkProcessedSql(),
                 new
                 {
                     EventId = row.Id,
@@ -154,9 +140,7 @@ public sealed class OutboxProcessor : IOutboxProcessor
     private async Task<bool> AlreadyProcessedAsync(IDbConnection connection, Guid eventId, string handlerName, CancellationToken cancellationToken)
     {
         var total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
-            @"SELECT COUNT(1)
-              FROM Core.OutboxProcessedEvent
-              WHERE EventId = @EventId AND HandlerName = @HandlerName;",
+            GetAlreadyProcessedSql(),
             new { EventId = eventId, HandlerName = handlerName },
             cancellationToken: cancellationToken));
         return total > 0;
@@ -165,11 +149,7 @@ public sealed class OutboxProcessor : IOutboxProcessor
     private async Task MarkProcessedAsync(IDbConnection connection, Guid eventId, CancellationToken cancellationToken)
     {
         await connection.ExecuteAsync(new CommandDefinition(
-            @"UPDATE Core.OutboxEvent
-              SET Status = @ProcessedStatus,
-                  ProcessedOnUtc = SYSUTCDATETIME(),
-                  LockedUntilUtc = NULL
-              WHERE Id = @EventId;",
+            GetMarkProcessedSql(),
             new
             {
                 EventId = eventId,
@@ -189,13 +169,7 @@ public sealed class OutboxProcessor : IOutboxProcessor
         var nextAttemptUtc = DateTimeOffset.UtcNow.AddSeconds(seconds);
 
         await connection.ExecuteAsync(new CommandDefinition(
-            @"UPDATE Core.OutboxEvent
-              SET Status = @Status,
-                  RetryCount = @RetryCount,
-                  NextAttemptUtc = @NextAttemptUtc,
-                  LockedUntilUtc = NULL,
-                  LastError = @LastError
-              WHERE Id = @EventId;",
+            GetMarkFailedSql(),
             new
             {
                 EventId = row.Id,
@@ -214,6 +188,98 @@ public sealed class OutboxProcessor : IOutboxProcessor
             retryCount,
             status,
             error);
+    }
+
+    private string GetClaimPendingSql()
+    {
+        if (_isPostgres)
+        {
+            return @"WITH cte AS (
+                        SELECT ""Id""
+                        FROM ""Core"".""OutboxEvent""
+                        WHERE ""Status"" = @PendingStatus
+                          AND ""NextAttemptUtc"" <= CURRENT_TIMESTAMP
+                          AND (""LockedUntilUtc"" IS NULL OR ""LockedUntilUtc"" < CURRENT_TIMESTAMP)
+                        ORDER BY ""OccurredOnUtc""
+                        LIMIT @BatchSize
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE ""Core"".""OutboxEvent"" e
+                    SET ""Status"" = @ProcessingStatus,
+                        ""LockedUntilUtc"" = CURRENT_TIMESTAMP + (@LockSeconds || ' seconds')::interval
+                    FROM cte
+                    WHERE e.""Id"" = cte.""Id""
+                    RETURNING e.""Id"", e.""OrganizacaoId"", e.""EventType"", e.""Payload"", e.""CorrelationId"", e.""RetryCount"";";
+        }
+
+        return @";WITH cte AS (
+                    SELECT TOP (@BatchSize) *
+                    FROM Core.OutboxEvent WITH (UPDLOCK, READPAST, ROWLOCK)
+                    WHERE Status = @PendingStatus
+                      AND NextAttemptUtc <= SYSUTCDATETIME()
+                      AND (LockedUntilUtc IS NULL OR LockedUntilUtc < SYSUTCDATETIME())
+                    ORDER BY OccurredOnUtc
+                  )
+                  UPDATE cte
+                  SET Status = @ProcessingStatus,
+                      LockedUntilUtc = DATEADD(SECOND, @LockSeconds, SYSUTCDATETIME())
+                  OUTPUT INSERTED.Id, INSERTED.OrganizacaoId, INSERTED.EventType, INSERTED.Payload, INSERTED.CorrelationId, INSERTED.RetryCount;";
+    }
+
+    private string GetInsertProcessedSql()
+    {
+        return _isPostgres
+            ? @"INSERT INTO ""Core"".""OutboxProcessedEvent"" (""EventId"", ""HandlerName"", ""ProcessedOnUtc"")
+                VALUES (@EventId, @HandlerName, CURRENT_TIMESTAMP);"
+            : @"INSERT INTO Core.OutboxProcessedEvent (EventId, HandlerName, ProcessedOnUtc)
+                VALUES (@EventId, @HandlerName, SYSUTCDATETIME());";
+    }
+
+    private string GetAlreadyProcessedSql()
+    {
+        return _isPostgres
+            ? @"SELECT COUNT(1)
+                FROM ""Core"".""OutboxProcessedEvent""
+                WHERE ""EventId"" = @EventId AND ""HandlerName"" = @HandlerName;"
+            : @"SELECT COUNT(1)
+                FROM Core.OutboxProcessedEvent
+                WHERE EventId = @EventId AND HandlerName = @HandlerName;";
+    }
+
+    private string GetMarkProcessedSql()
+    {
+        return _isPostgres
+            ? @"UPDATE ""Core"".""OutboxEvent""
+                SET ""Status"" = @ProcessedStatus,
+                    ""ProcessedOnUtc"" = CURRENT_TIMESTAMP,
+                    ""LockedUntilUtc"" = NULL,
+                    ""LastError"" = NULL
+                WHERE ""Id"" = @EventId;"
+            : @"UPDATE Core.OutboxEvent
+                SET Status = @ProcessedStatus,
+                    ProcessedOnUtc = SYSUTCDATETIME(),
+                    LockedUntilUtc = NULL,
+                    LastError = NULL
+                WHERE Id = @EventId;";
+    }
+
+    private string GetMarkFailedSql()
+    {
+        return _isPostgres
+            ? @"UPDATE ""Core"".""OutboxEvent""
+                SET ""Status"" = @Status,
+                    ""RetryCount"" = @RetryCount,
+                    ""NextAttemptUtc"" = @NextAttemptUtc,
+                    ""LockedUntilUtc"" = NULL,
+                    ""LastError"" = @LastError
+                WHERE ""Id"" = @EventId;"
+            : @"UPDATE Core.OutboxEvent
+                SET Status = @Status,
+                    RetryCount = @RetryCount,
+                    NextAttemptUtc = @NextAttemptUtc,
+                    LockedUntilUtc = NULL,
+                    LastError = @LastError
+                WHERE Id = @EventId;";
     }
 
     private static object DeserializePayload(OutboxEventRow row, Type payloadType)

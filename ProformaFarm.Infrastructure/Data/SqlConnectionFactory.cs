@@ -10,6 +10,7 @@ public sealed class SqlConnectionFactory : ISqlConnectionFactory
 {
     private readonly string _provider;
     private readonly string _connectionString;
+    public string ProviderName => _provider;
 
     public SqlConnectionFactory(string provider, string connectionString)
     {
