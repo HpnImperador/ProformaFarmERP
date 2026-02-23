@@ -207,6 +207,7 @@ Sempre que houver incremento relevante:
 - `docs/ESTRATEGIA_EXPORTACOES_CSV_PDF.md`
 - `docs/INDICES_ESTRUTURA_ORGANIZACIONAL.md`
 - `docs/MIGRACAO_SQLSERVER_PARA_POSTGRESQL.md`
+- `docs/MATRIZ_GAPS_POSTGRESQL.md`
 - `docs/sql/001_estrutura_organizacional.sql`
 - `docs/sql/002_seed_estrutura_organizacional.sql`
 - `docs/sql/003_idx_lotacaousuario_orgcontext.sql`

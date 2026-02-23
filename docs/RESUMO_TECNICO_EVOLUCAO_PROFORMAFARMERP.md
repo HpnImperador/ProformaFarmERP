@@ -812,3 +812,16 @@ Foi aplicado reforço operacional para execução segura em servidor PostgreSQL 
 
 Documentação adicionada:
 - `docs/CHECKLIST_PRE_EXECUCAO_POSTGRESQL.md`
+
+## 58) Matriz de Gaps PostgreSQL (Priorização Técnica)
+Foi consolidado o mapeamento de pontos ainda dependentes de T-SQL para orientar a migração sem risco operacional:
+
+- documento: `docs/MATRIZ_GAPS_POSTGRESQL.md`;
+- escopo mapeado por prioridade:
+  - `EstoqueController` (locks, `TOP`, `OUTPUT`, datas UTC);
+  - `OrgContext` e `OrganizacaoController` (`TOP (1)`);
+  - repositórios de autenticação (`UserRepository`, `RefreshTokenRepository`);
+  - `SeedController` e defaults de `DbContext`.
+
+Objetivo:
+- executar a próxima etapa com foco nos blocos críticos de runtime antes da homologação final no PostgreSQL.

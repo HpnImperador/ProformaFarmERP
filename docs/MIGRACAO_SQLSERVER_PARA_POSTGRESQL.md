@@ -76,6 +76,9 @@ Ordem de execução recomendada no PostgreSQL:
 - Índices/constraints:
   - revisar índices filtrados e constraints específicas.
 
+Matriz de gaps atual:
+- `docs/MATRIZ_GAPS_POSTGRESQL.md`
+
 ## 6. Integração com N8N e Prisma
 - N8N:
   - consumir webhooks do `Event Relay` para automações externas.
