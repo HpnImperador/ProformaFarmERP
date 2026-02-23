@@ -28,6 +28,7 @@ public sealed class EstoqueController : ControllerBase
     private readonly ICorrelationIdAccessor _correlationIdAccessor;
     private readonly ICsvExportService _csvExportService;
     private readonly IPdfExportService _pdfExportService;
+    private readonly bool _isPostgres;
     private const decimal LimiteEstoqueBaixoPadrao = 20m;
 
     private const string SaldoSql = @"
@@ -426,6 +427,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
         _correlationIdAccessor = correlationIdAccessor ?? throw new ArgumentNullException(nameof(correlationIdAccessor));
         _csvExportService = csvExportService ?? throw new ArgumentNullException(nameof(csvExportService));
         _pdfExportService = pdfExportService ?? throw new ArgumentNullException(nameof(pdfExportService));
+        _isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 
     [HttpGet("saldos")]
@@ -445,13 +448,14 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<SaldoEstoqueItem>(
-            SaldoSql,
+            GetReadSql(SaldoSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
                 IdUnidadeOrganizacional = idUnidadeOrganizacional,
                 IdProduto = idProduto,
-                CodigoProduto = string.IsNullOrWhiteSpace(codigoProduto) ? null : codigoProduto.Trim()
+                CodigoProduto = string.IsNullOrWhiteSpace(codigoProduto) ? null : codigoProduto.Trim(),
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         foreach (var item in itens)
@@ -491,14 +495,15 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<SaldoEstoqueItem>(
-            SaldoExportSql,
+            GetLimitedReadSql(SaldoExportSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
                 IdUnidadeOrganizacional = idUnidadeOrganizacional,
                 IdProduto = idProduto,
                 CodigoProduto = string.IsNullOrWhiteSpace(codigoProduto) ? null : codigoProduto.Trim(),
-                Limite = limite
+                Limite = limite,
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         foreach (var item in itens)
@@ -548,14 +553,15 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<SaldoEstoqueItem>(
-            SaldoExportSql,
+            GetLimitedReadSql(SaldoExportSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
                 IdUnidadeOrganizacional = idUnidadeOrganizacional,
                 IdProduto = idProduto,
                 CodigoProduto = string.IsNullOrWhiteSpace(codigoProduto) ? null : codigoProduto.Trim(),
-                Limite = limite
+                Limite = limite,
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         foreach (var item in itens)
@@ -598,13 +604,14 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<ReservaAtivaItem>(
-            ReservaAtivaSql,
+            GetReadSql(ReservaAtivaSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
                 IdUnidadeOrganizacional = idUnidadeOrganizacional,
                 IdProduto = idProduto,
-                Status = string.IsNullOrWhiteSpace(status) ? "ATIVA" : status.Trim()
+                Status = string.IsNullOrWhiteSpace(status) ? "ATIVA" : status.Trim(),
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         var payload = new ReservasAtivasResponse
@@ -641,14 +648,15 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<ReservaAtivaItem>(
-            ReservaAtivaExportSql,
+            GetLimitedReadSql(ReservaAtivaExportSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
                 IdUnidadeOrganizacional = idUnidadeOrganizacional,
                 IdProduto = idProduto,
                 Status = string.IsNullOrWhiteSpace(status) ? "ATIVA" : status.Trim(),
-                Limite = limite
+                Limite = limite,
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         var csv = _csvExportService.BuildCsv(itens, new (string Header, Func<ReservaAtivaItem, object?> ValueSelector)[]
@@ -756,8 +764,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var detalhe = await cn.QueryFirstOrDefaultAsync<ReservaHistoricoItem>(
-            ReservaDetalheSql,
-            new { IdReservaEstoque = idReservaEstoque });
+            GetTopOneReadSql(ReservaDetalheSql),
+            new { IdReservaEstoque = idReservaEstoque, UtcNow = DateTime.UtcNow });
 
         if (detalhe is null)
         {
@@ -821,7 +829,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<ReservaHistoricoItem>(
-            ReservaHistoricoExportSql,
+            GetLimitedReadSql(ReservaHistoricoExportSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -831,7 +839,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 Status = string.IsNullOrWhiteSpace(status) ? null : status.Trim(),
                 DataDe = dataDe,
                 DataAte = dataAte,
-                Limite = limite
+                Limite = limite,
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         var csv = _csvExportService.BuildCsv(itens, new (string Header, Func<ReservaHistoricoItem, object?> ValueSelector)[]
@@ -889,7 +898,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<ReservaHistoricoItem>(
-            ReservaHistoricoExportSql,
+            GetLimitedReadSql(ReservaHistoricoExportSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -899,7 +908,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 Status = string.IsNullOrWhiteSpace(status) ? null : status.Trim(),
                 DataDe = dataDe,
                 DataAte = dataAte,
-                Limite = limite
+                Limite = limite,
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         var rows = itens
@@ -1034,7 +1044,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<MovimentacaoHistoricoItem>(
-            MovimentacaoHistoricoExportSql,
+            GetLimitedReadSql(MovimentacaoHistoricoExportSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -1044,7 +1054,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 TipoMovimento = tipoNormalizado,
                 DataDe = dataDe,
                 DataAte = dataAte,
-                Limite = limite
+                Limite = limite,
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         var csv = _csvExportService.BuildCsv(itens, new (string Header, Func<MovimentacaoHistoricoItem, object?> ValueSelector)[]
@@ -1104,7 +1115,7 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
 
         using var cn = _factory.CreateConnection();
         var itens = (await cn.QueryAsync<MovimentacaoHistoricoItem>(
-            MovimentacaoHistoricoExportSql,
+            GetLimitedReadSql(MovimentacaoHistoricoExportSql),
             new
             {
                 IdOrganizacao = idOrganizacaoEfetiva.Value,
@@ -1114,7 +1125,8 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
                 TipoMovimento = tipoNormalizado,
                 DataDe = dataDe,
                 DataAte = dataAte,
-                Limite = limite
+                Limite = limite,
+                UtcNow = DateTime.UtcNow
             })).ToList();
 
         var rows = itens
@@ -2071,6 +2083,45 @@ ORDER BY ExpiraEmUtc, IdReservaEstoque;";
             return idOrganizacao.Value;
 
         return await _orgContext.GetCurrentOrganizacaoIdAsync(HttpContext.RequestAborted);
+    }
+
+    private string GetReadSql(string sql)
+    {
+        if (!_isPostgres)
+            return sql;
+
+        return sql.Replace("SYSUTCDATETIME()", "@UtcNow", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetLimitedReadSql(string sql)
+    {
+        if (!_isPostgres)
+            return sql;
+
+        var normalized = GetReadSql(sql)
+            .Replace("SELECT TOP (@Limite)", "SELECT", StringComparison.OrdinalIgnoreCase);
+
+        return EnsureLimitClause(normalized, "@Limite");
+    }
+
+    private string GetTopOneReadSql(string sql)
+    {
+        if (!_isPostgres)
+            return sql;
+
+        var normalized = GetReadSql(sql)
+            .Replace("SELECT TOP (1)", "SELECT", StringComparison.OrdinalIgnoreCase);
+
+        return EnsureLimitClause(normalized, "1");
+    }
+
+    private static string EnsureLimitClause(string sql, string limitExpression)
+    {
+        var trimmed = sql.TrimEnd();
+        if (trimmed.EndsWith(";"))
+            trimmed = trimmed[..^1];
+
+        return $"{trimmed}\nLIMIT {limitExpression};";
     }
 
     private FileContentResult BuildCsvFileResult(string csv, string resource)

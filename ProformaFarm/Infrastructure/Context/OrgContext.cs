@@ -23,11 +23,14 @@ public sealed class OrgContext : IOrgContext
 
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ISqlConnectionFactory _factory;
+    private readonly bool _isPostgres;
 
     public OrgContext(IHttpContextAccessor httpContextAccessor, ISqlConnectionFactory factory)
     {
         _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 
     public int? GetCurrentUsuarioId()
@@ -118,17 +121,22 @@ public sealed class OrgContext : IOrgContext
 
         using var cn = _factory.CreateConnection();
 
-        const string sql = @"
+        var sql = @"
 SELECT COUNT(1)
 FROM dbo.LotacaoUsuario lu
 INNER JOIN dbo.UnidadeOrganizacional uo ON uo.IdUnidadeOrganizacional = lu.IdUnidadeOrganizacional
 WHERE lu.IdUsuario = @IdUsuario
-  AND lu.Ativa = 1
+  AND lu.Ativa = @AtivaTrue
   AND uo.IdOrganizacao = @IdOrganizacao;
 ";
 
         var total = await cn.ExecuteScalarAsync<int>(
-            new CommandDefinition(sql, new { IdUsuario = idUsuario.Value, IdOrganizacao = idOrganizacao }, cancellationToken: ct));
+            new CommandDefinition(sql, new
+            {
+                IdUsuario = idUsuario.Value,
+                IdOrganizacao = idOrganizacao,
+                AtivaTrue = true
+            }, cancellationToken: ct));
 
         return total > 0;
     }
@@ -186,20 +194,38 @@ WHERE lu.IdUsuario = @IdUsuario
 
         using var cn = _factory.CreateConnection();
 
-        const string sql = @"
+        var sql = _isPostgres
+            ? @"
+SELECT
+    uo.IdOrganizacao,
+    lu.IdUnidadeOrganizacional
+FROM dbo.LotacaoUsuario lu
+INNER JOIN dbo.UnidadeOrganizacional uo ON uo.IdUnidadeOrganizacional = lu.IdUnidadeOrganizacional
+WHERE lu.IdUsuario = @IdUsuario
+  AND lu.Ativa = @AtivaTrue
+  AND (@IdDoHeader IS NULL OR uo.IdOrganizacao = @IdDoHeader)
+ORDER BY lu.Principal DESC, lu.IdLotacaoUsuario DESC
+LIMIT 1;
+"
+            : @"
 SELECT TOP (1)
     uo.IdOrganizacao,
     lu.IdUnidadeOrganizacional
 FROM dbo.LotacaoUsuario lu
 INNER JOIN dbo.UnidadeOrganizacional uo ON uo.IdUnidadeOrganizacional = lu.IdUnidadeOrganizacional
 WHERE lu.IdUsuario = @IdUsuario
-  AND lu.Ativa = 1
+  AND lu.Ativa = @AtivaTrue
   AND (@IdDoHeader IS NULL OR uo.IdOrganizacao = @IdDoHeader)
 ORDER BY lu.Principal DESC, lu.IdLotacaoUsuario DESC;
 ";
 
         var result = await cn.QueryFirstOrDefaultAsync<ResolvedOrgRow>(
-            new CommandDefinition(sql, new { IdUsuario = idUsuario.Value, IdDoHeader = idDoHeader }, cancellationToken: ct));
+            new CommandDefinition(sql, new
+            {
+                IdUsuario = idUsuario.Value,
+                IdDoHeader = idDoHeader,
+                AtivaTrue = true
+            }, cancellationToken: ct));
 
         items[CacheKeyResolved] = true;
         items[CacheKeyResolvedOrgId] = result?.IdOrganizacao;

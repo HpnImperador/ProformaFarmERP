@@ -825,3 +825,21 @@ Foi consolidado o mapeamento de pontos ainda dependentes de T-SQL para orientar 
 
 Objetivo:
 - executar a próxima etapa com foco nos blocos críticos de runtime antes da homologação final no PostgreSQL.
+
+## 59) Refatoração Prioridade 0 (OrgContext + Organização + Leitura de Estoque)
+Foi executada a primeira etapa de compatibilização de runtime para PostgreSQL nos blocos mais críticos de leitura:
+
+- `OrgContext`:
+  - remoção de dependência fixa de `TOP (1)` para caminho PostgreSQL (`LIMIT 1`);
+  - parametrização de comparações de ativo (`@AtivaTrue`) para evitar acoplamento em `bit = 1`.
+- `OrganizacaoController`:
+  - remoção de `DECLARE`/lógica T-SQL de variável local;
+  - resolução de organização efetiva movida para C# com fallback consistente;
+  - carregamento de estrutura com query múltipla parametrizada.
+- `EstoqueController` (bloco de leitura/exportação):
+  - adaptação de SQL em runtime para PostgreSQL (substituição de `TOP` por `LIMIT` e `SYSUTCDATETIME()` por parâmetro UTC);
+  - preservação do comportamento atual para SQL Server.
+
+Validação:
+- `dotnet build` com sucesso;
+- suíte de integração filtrada (`Organização`, `Estoque`, `Outbox`) com sucesso (67 testes aprovados).

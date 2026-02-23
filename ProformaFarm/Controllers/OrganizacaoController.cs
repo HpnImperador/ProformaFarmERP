@@ -18,18 +18,9 @@ public sealed class OrganizacaoController : ControllerBase
 {
     private readonly ISqlConnectionFactory _factory;
     private readonly IOrgContext _orgContext;
+    private readonly bool _isPostgres;
 
     private const string EstruturaSql = @"
-DECLARE @IdOrganizacao INT = @IdOrgParam;
-
-IF @IdOrganizacao IS NULL
-BEGIN
-    SELECT TOP (1) @IdOrganizacao = IdOrganizacao
-    FROM dbo.Organizacao
-    WHERE Ativa = 1
-    ORDER BY IdOrganizacao;
-END;
-
 SELECT IdOrganizacao, RazaoSocial, NomeFantasia, Cnpj, Ativa, DataCriacao
 FROM dbo.Organizacao
 WHERE IdOrganizacao = @IdOrganizacao;
@@ -56,7 +47,7 @@ INNER JOIN dbo.Usuario u ON u.IdUsuario = lu.IdUsuario
 INNER JOIN dbo.UnidadeOrganizacional uo ON uo.IdUnidadeOrganizacional = lu.IdUnidadeOrganizacional
 LEFT JOIN dbo.Cargo c ON c.IdCargo = lu.IdCargo
 WHERE uo.IdOrganizacao = @IdOrganizacao
-  AND lu.Ativa = 1
+  AND lu.Ativa = @AtivaTrue
 ORDER BY lu.Principal DESC, u.Login;
 ";
 
@@ -64,6 +55,8 @@ ORDER BY lu.Principal DESC, u.Login;
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _orgContext = orgContext ?? throw new ArgumentNullException(nameof(orgContext));
+        _isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 
     [Authorize]
@@ -96,7 +89,7 @@ ORDER BY lu.Principal DESC, u.Login;
     [HttpGet("estrutura")]
     public async Task<IActionResult> ObterEstrutura([FromQuery] int? idOrganizacao = null)
     {
-        var idOrganizacaoEfetiva = await ResolverOrganizacaoEfetivaAsync(idOrganizacao);
+        var idOrganizacaoEfetiva = await ResolverOrganizacaoEfetivaAsync(idOrganizacao, cn: null);
         if (!idOrganizacaoEfetiva.HasValue)
         {
             return StatusCode(403, ApiResponse<object>.Fail(
@@ -106,7 +99,7 @@ ORDER BY lu.Principal DESC, u.Login;
         }
 
         using var cn = _factory.CreateConnection();
-        var (org, unidades, lotacoes) = await CarregarEstruturaAsync(cn, idOrganizacaoEfetiva);
+        var (org, unidades, lotacoes) = await CarregarEstruturaAsync(cn, idOrganizacaoEfetiva.Value);
 
         if (org is null)
         {
@@ -130,7 +123,7 @@ ORDER BY lu.Principal DESC, u.Login;
     [HttpGet("estrutura/arvore")]
     public async Task<IActionResult> ObterEstruturaArvore([FromQuery] int? idOrganizacao = null)
     {
-        var idOrganizacaoEfetiva = await ResolverOrganizacaoEfetivaAsync(idOrganizacao);
+        var idOrganizacaoEfetiva = await ResolverOrganizacaoEfetivaAsync(idOrganizacao, cn: null);
         if (!idOrganizacaoEfetiva.HasValue)
         {
             return StatusCode(403, ApiResponse<object>.Fail(
@@ -140,7 +133,7 @@ ORDER BY lu.Principal DESC, u.Login;
         }
 
         using var cn = _factory.CreateConnection();
-        var (org, unidades, lotacoes) = await CarregarEstruturaAsync(cn, idOrganizacaoEfetiva);
+        var (org, unidades, lotacoes) = await CarregarEstruturaAsync(cn, idOrganizacaoEfetiva.Value);
 
         if (org is null)
         {
@@ -194,9 +187,13 @@ ORDER BY lu.Principal DESC, u.Login;
 
     private static async Task<(OrganizacaoItem? org, List<UnidadeItem> unidades, List<LotacaoItem> lotacoes)> CarregarEstruturaAsync(
         IDbConnection cn,
-        int? idOrganizacao)
+        int idOrganizacao)
     {
-        using var multi = await cn.QueryMultipleAsync(EstruturaSql, new { IdOrgParam = idOrganizacao });
+        using var multi = await cn.QueryMultipleAsync(EstruturaSql, new
+        {
+            IdOrganizacao = idOrganizacao,
+            AtivaTrue = true
+        });
 
         var org = await multi.ReadFirstOrDefaultAsync<OrganizacaoItem>();
         var unidades = (await multi.ReadAsync<UnidadeItem>()).ToList();
@@ -205,12 +202,39 @@ ORDER BY lu.Principal DESC, u.Login;
         return (org, unidades, lotacoes);
     }
 
-    private async Task<int?> ResolverOrganizacaoEfetivaAsync(int? idOrganizacao)
+    private async Task<int?> ResolverOrganizacaoEfetivaAsync(int? idOrganizacao, IDbConnection? cn)
     {
         if (idOrganizacao.HasValue)
             return idOrganizacao.Value;
 
-        return await _orgContext.GetCurrentOrganizacaoIdAsync();
+        var fromContext = await _orgContext.GetCurrentOrganizacaoIdAsync();
+        if (fromContext.HasValue)
+            return fromContext.Value;
+
+        var ownConnection = cn is null;
+        if (ownConnection)
+            cn = _factory.CreateConnection();
+
+        try
+        {
+            var firstActiveSql = _isPostgres
+                ? @"SELECT IdOrganizacao
+                    FROM dbo.Organizacao
+                    WHERE Ativa = @AtivaTrue
+                    ORDER BY IdOrganizacao
+                    LIMIT 1;"
+                : @"SELECT TOP (1) IdOrganizacao
+                    FROM dbo.Organizacao
+                    WHERE Ativa = @AtivaTrue
+                    ORDER BY IdOrganizacao;";
+
+            return await cn!.ExecuteScalarAsync<int?>(firstActiveSql, new { AtivaTrue = true });
+        }
+        finally
+        {
+            if (ownConnection)
+                cn?.Dispose();
+        }
     }
 
     public sealed class EstruturaOrganizacionalResponse
