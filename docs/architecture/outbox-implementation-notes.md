@@ -90,3 +90,19 @@ Cobertura implementada:
 - idempotência por `EventId`;
 - cenário de negócio `EstoqueBaixo` (geração + processamento + persistência de notificação).
 - cenário de negócio `EstoqueReposto` (transição de estoque baixo para normal, processamento e persistência idempotente).
+
+## Event Relay (Outbox -> Webhook)
+
+Foi adicionada a base da Fase 0 de integrações:
+
+- `Integration.IntegrationClient` para cadastro de destino por organização;
+- `Integration.IntegrationDeliveryLog` para fila de entrega, status e retry;
+- `EventRelayProcessor` em background (`EventRelayHostedService`);
+- endpoint manual `POST /api/outbox/event-relay/processar-agora`.
+
+Regras aplicadas:
+
+- fonte dos eventos é `Core.OutboxEvent` já processado;
+- idempotência por chave única (`OutboxEventId + IdIntegrationClient`);
+- retry com backoff e status final de falha;
+- rastreabilidade com `OutboxEventId`, `OrganizacaoId` e `CorrelationId`.

@@ -692,3 +692,27 @@ Diretrizes travadas para os próximos incrementos:
 - `OrgContext` deve ser visível e obrigatório em toda interface (ContextBar fixa);
 - segurança visual e anti cross-tenant devem existir em SSR/middleware e API;
 - rastreabilidade por `CorrelationId` deve aparecer em ações críticas e erros.
+
+## 50) Fase 0 de Integração: Event Relay (Outbox -> Webhook)
+Foi implementada a base do Event Relay para integrações desacopladas:
+
+- opção de configuração `IntegrationRelay` (batch, lock, retry e assinatura);
+- `EventRelayProcessor` + `EventRelayHostedService`;
+- transporte HTTP com suporte a header de assinatura HMAC;
+- endpoint manual de operação: `POST /api/outbox/event-relay/processar-agora`.
+
+Estrutura de dados:
+- `Integration.IntegrationClient` (destinos ativos por organização);
+- `Integration.IntegrationDeliveryLog` (status, tentativas e rastreabilidade).
+
+Script:
+- `docs/sql/006_integration_event_relay.sql` (idempotente).
+
+## 51) Qualidade (Event Relay)
+Foi adicionada suíte de integração:
+
+- `ProformaFarm.Application.Tests/Integration/Outbox/OutboxEventRelayPipelineTests.cs`
+
+Cenários cobertos:
+- entrega com sucesso e idempotência da linha de entrega;
+- retry com backoff e transição para status de falha ao exceder tentativas.

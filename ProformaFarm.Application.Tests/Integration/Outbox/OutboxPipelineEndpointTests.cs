@@ -17,6 +17,7 @@ using Xunit;
 
 namespace ProformaFarm.Application.Tests.Integration.Outbox;
 
+[Collection("OutboxIntegration")]
 public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly CustomWebApplicationFactory _factory;

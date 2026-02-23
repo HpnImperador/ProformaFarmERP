@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ProformaFarm.Application.Common;
+using ProformaFarm.Application.Interfaces.Integration;
 using ProformaFarm.Application.Interfaces.Outbox;
 
 namespace ProformaFarm.Controllers;
@@ -14,11 +15,16 @@ public sealed class OutboxController : ControllerBase
 {
     private readonly IOutboxHelloService _outboxHelloService;
     private readonly IOutboxProcessor _outboxProcessor;
+    private readonly IEventRelayProcessor _eventRelayProcessor;
 
-    public OutboxController(IOutboxHelloService outboxHelloService, IOutboxProcessor outboxProcessor)
+    public OutboxController(
+        IOutboxHelloService outboxHelloService,
+        IOutboxProcessor outboxProcessor,
+        IEventRelayProcessor eventRelayProcessor)
     {
         _outboxHelloService = outboxHelloService;
         _outboxProcessor = outboxProcessor;
+        _eventRelayProcessor = eventRelayProcessor;
     }
 
     [HttpPost("hello-event")]
@@ -40,6 +46,13 @@ public sealed class OutboxController : ControllerBase
     {
         var total = await _outboxProcessor.ProcessPendingAsync(HttpContext.RequestAborted);
         return Ok(ApiResponse<object>.Ok(new { totalProcessados = total }, "Processamento manual do Outbox executado."));
+    }
+
+    [HttpPost("event-relay/processar-agora")]
+    public async Task<IActionResult> ProcessarRelayAgora()
+    {
+        var total = await _eventRelayProcessor.ProcessPendingAsync(HttpContext.RequestAborted);
+        return Ok(ApiResponse<object>.Ok(new { totalProcessados = total }, "Processamento manual do Event Relay executado."));
     }
 
     public sealed class EnqueueHelloEventRequest

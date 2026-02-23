@@ -14,6 +14,7 @@ using ProformaFarm.Application.Interfaces.Correlation;
 using ProformaFarm.Application.Interfaces.Context;
 using ProformaFarm.Application.Interfaces.Data;
 using ProformaFarm.Application.Interfaces.Export;
+using ProformaFarm.Application.Interfaces.Integration;
 using ProformaFarm.Application.Interfaces.Outbox;
 using ProformaFarm.Application.Options;
 using ProformaFarm.Application.Services.Auth;
@@ -21,6 +22,7 @@ using ProformaFarm.Application.Services.Export;
 using ProformaFarm.Application.Services.Security;
 using ProformaFarm.Infrastructure.Context;
 using ProformaFarm.Infrastructure.Data;
+using ProformaFarm.Infrastructure.Integration;
 using ProformaFarm.Infrastructure.Outbox;
 using ProformaFarm.Infrastructure.Outbox.Handlers;
 using ProformaFarm.Infrastructure.Repositories.Auth;
@@ -44,12 +46,20 @@ builder.Services.AddScoped<IPdfExportService, PdfExportService>();
 builder.Services.AddScoped<OutboxSaveChangesInterceptor>();
 builder.Services.AddScoped<IOutboxHelloService, OutboxHelloService>();
 builder.Services.AddSingleton<IOutboxProcessor, OutboxProcessor>();
-builder.Services.AddHostedService<OutboxProcessorHostedService>();
+builder.Services.AddHttpClient<IIntegrationEventTransport, HttpIntegrationEventTransport>();
+builder.Services.AddSingleton<IEventRelayProcessor, EventRelayProcessor>();
 builder.Services.AddSingleton<ICorrelationIdAccessor, HttpCorrelationIdAccessor>();
 builder.Services.AddSingleton<IOutboxEventHandler, HelloOutboxDomainEventHandler>();
 builder.Services.AddSingleton<IOutboxEventHandler, EstoqueBaixoDomainEventHandler>();
 builder.Services.AddSingleton<IOutboxEventHandler, EstoqueRepostoDomainEventHandler>();
 builder.Services.Configure<OutboxProcessingOptions>(builder.Configuration.GetSection(OutboxProcessingOptions.SectionName));
+builder.Services.Configure<IntegrationRelayOptions>(builder.Configuration.GetSection(IntegrationRelayOptions.SectionName));
+
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddHostedService<OutboxProcessorHostedService>();
+    builder.Services.AddHostedService<EventRelayHostedService>();
+}
 
 var connectionString =
     builder.Configuration.GetConnectionString("DefaultConnection")

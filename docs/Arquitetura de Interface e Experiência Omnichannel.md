@@ -1,4 +1,5 @@
 # Arquitetura de Interface e Experiência Omnichannel
+
 ## ProformaFarmERP — Diretrizes de UX/UI + Segurança Visual + Estrutura de Rotas
 Versão: 1.0  
 Status: Normativo (obrigatório para novas telas e fluxos)  

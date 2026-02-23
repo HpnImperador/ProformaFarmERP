@@ -4,22 +4,22 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using ProformaFarm.Application.Interfaces.Outbox;
+using ProformaFarm.Application.Interfaces.Integration;
 
-namespace ProformaFarm.Infrastructure.Outbox;
+namespace ProformaFarm.Infrastructure.Integration;
 
-public sealed class OutboxProcessorHostedService : BackgroundService
+public sealed class EventRelayHostedService : BackgroundService
 {
-    private readonly IOutboxProcessor _processor;
-    private readonly OutboxProcessingOptions _options;
+    private readonly IEventRelayProcessor _processor;
+    private readonly IntegrationRelayOptions _options;
     private readonly IHostEnvironment _environment;
-    private readonly ILogger<OutboxProcessorHostedService> _logger;
+    private readonly ILogger<EventRelayHostedService> _logger;
 
-    public OutboxProcessorHostedService(
-        IOutboxProcessor processor,
-        IOptions<OutboxProcessingOptions> options,
+    public EventRelayHostedService(
+        IEventRelayProcessor processor,
+        IOptions<IntegrationRelayOptions> options,
         IHostEnvironment environment,
-        ILogger<OutboxProcessorHostedService> logger)
+        ILogger<EventRelayHostedService> logger)
     {
         _processor = processor;
         _options = options.Value;
@@ -31,11 +31,11 @@ public sealed class OutboxProcessorHostedService : BackgroundService
     {
         if (_environment.IsEnvironment("Testing"))
         {
-            _logger.LogInformation("OutboxProcessorHostedService desativado no ambiente Testing.");
+            _logger.LogInformation("EventRelayHostedService desativado no ambiente Testing.");
             return;
         }
 
-        _logger.LogInformation("OutboxProcessorHostedService iniciado.");
+        _logger.LogInformation("EventRelayHostedService iniciado.");
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -44,7 +44,7 @@ public sealed class OutboxProcessorHostedService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Falha no ciclo do OutboxProcessorHostedService.");
+                _logger.LogError(ex, "Falha no ciclo do EventRelayHostedService.");
             }
 
             await Task.Delay(TimeSpan.FromSeconds(_options.PollingIntervalSeconds), stoppingToken);
