@@ -946,3 +946,18 @@ Foi criada camada de compatibilidade para consultas legadas não-citadas:
   - objetos PostgreSQL criados com identificadores citados (`"Usuario"`, `"Core"."OutboxEvent"`, etc.).
 
 Também foi atualizado o `scripts/dev-loop.ps1` para executar o `007` após o `006`.
+
+## 67) Validação completa Outbox/Event Relay no PostgreSQL de laboratório
+Foi concluída a validação ponta a ponta da trilha PostgreSQL no laboratório em **25 de fevereiro de 2026**, usando o runner dedicado:
+
+- comando:
+  - `scripts/lab-validate-postgres-outbox-relay.ps1`
+- ambiente:
+  - PostgreSQL `15.16` em servidor Ubuntu (`192.168.0.109`), database `proformafarm`;
+- resultado:
+  - `Integration.Outbox`: **8/8 aprovados**;
+  - suíte completa `Application.Tests`: **87/87 aprovados**;
+  - snapshots pré/pós confirmando processamento e entrega no pipeline `Outbox -> Event Relay`.
+
+Evidência registrada:
+- `logs/lab-postgres-outbox-relay-20260225_175409.log`.

@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Extensions.Configuration;
@@ -32,32 +33,35 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
     [Fact]
     public async Task Relay_deve_entregar_evento_processado_com_idempotencia()
     {
+        var ct = TestContext.Current.CancellationToken;
         var setup = await OutboxTestDataSetup.EnsureAsync(_factory);
         _ = await IntegrationRelayTestDataSetup.EnsureAsync(_factory, setup.IdOrganizacao, "mock://success");
-        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
+        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha, ct);
 
         var response = await client.PostAsJsonAsync("/api/outbox/hello-event", new
         {
             nomeEvento = "HELLO_EVENT_RELAY_OK",
             simularFalhaUmaVez = false
-        });
+        }, ct);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>();
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>(cancellationToken: ct);
         Assert.NotNull(body);
         Assert.True(body!.Success);
         Assert.NotNull(body.Data);
 
         var outbox = _factory.Services.GetRequiredService<IOutboxProcessor>();
-        _ = await outbox.ProcessPendingAsync();
-        _ = await outbox.ProcessPendingAsync();
+        _ = await outbox.ProcessPendingAsync(ct);
+        _ = await outbox.ProcessPendingAsync(ct);
 
         var relay = _factory.Services.GetRequiredService<IEventRelayProcessor>();
-        await ProcessRelayUntilAsync(
+        var processed = await ProcessRelayUntilAsync(
             relay,
             body.Data.EventId,
             row => row is not null && row.Status == 2,
-            maxCycles: 80);
+            maxCycles: 80,
+            ct);
+        Assert.NotNull(processed);
 
         var isPostgres = IsPostgres();
         await using var cn = await OpenConnectionAsync();
@@ -93,32 +97,35 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
     [Fact]
     public async Task Relay_deve_aplicar_retry_e_marcar_failed_ao_exceder_tentativas()
     {
+        var ct = TestContext.Current.CancellationToken;
         var setup = await OutboxTestDataSetup.EnsureAsync(_factory);
         _ = await IntegrationRelayTestDataSetup.EnsureAsync(_factory, setup.IdOrganizacao, "mock://fail");
-        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
+        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha, ct);
 
         var response = await client.PostAsJsonAsync("/api/outbox/hello-event", new
         {
             nomeEvento = "HELLO_EVENT_RELAY_FAIL",
             simularFalhaUmaVez = false
-        });
+        }, ct);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>();
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>(cancellationToken: ct);
         Assert.NotNull(body);
         Assert.True(body!.Success);
         Assert.NotNull(body.Data);
 
         var outbox = _factory.Services.GetRequiredService<IOutboxProcessor>();
-        _ = await outbox.ProcessPendingAsync();
-        _ = await outbox.ProcessPendingAsync();
+        _ = await outbox.ProcessPendingAsync(ct);
+        _ = await outbox.ProcessPendingAsync(ct);
 
         var relay = _factory.Services.GetRequiredService<IEventRelayProcessor>();
-        await ProcessRelayUntilAsync(
+        var retried = await ProcessRelayUntilAsync(
             relay,
             body.Data.EventId,
             row => row is not null && row.AttemptCount >= 1,
-            maxCycles: 80);
+            maxCycles: 80,
+            ct);
+        Assert.NotNull(retried);
 
         var isPostgres = IsPostgres();
         await using var cn = await OpenConnectionAsync();
@@ -155,7 +162,7 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
                     WHERE IdIntegrationDeliveryLog = @Id;",
             new { Id = current.IdIntegrationDeliveryLog }));
 
-        _ = await relay.ProcessPendingAsync();
+        _ = await relay.ProcessPendingAsync(ct);
 
         var final = await cn.QueryFirstAsync<DeliveryRow>(new CommandDefinition(
             isPostgres
@@ -171,17 +178,17 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
         Assert.True(final.AttemptCount >= 5);
     }
 
-    private async Task<HttpClient> CreateAuthenticatedClientAsync(string login, string senha)
+    private async Task<HttpClient> CreateAuthenticatedClientAsync(string login, string senha, CancellationToken cancellationToken)
     {
         var client = _factory.CreateClient();
         var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
             Login = login,
             Senha = senha
-        });
+        }, cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
-        var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>();
+        var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>(cancellationToken: cancellationToken);
         Assert.NotNull(loginBody);
         Assert.True(loginBody!.Success);
         Assert.NotNull(loginBody.Data);
@@ -208,19 +215,21 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
 
         var connection = (DbConnection)factory.CreateConnection();
         connection.ConnectionString = connectionString;
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         return connection;
     }
 
-    private async Task ProcessRelayUntilAsync(
+    private async Task<DeliveryIdRow?> ProcessRelayUntilAsync(
         IEventRelayProcessor relay,
         Guid outboxEventId,
         Func<DeliveryIdRow?, bool> predicate,
-        int maxCycles)
+        int maxCycles,
+        CancellationToken cancellationToken)
     {
+        DeliveryIdRow? lastRow = null;
         for (var i = 0; i < maxCycles; i++)
         {
-            _ = await relay.ProcessPendingAsync();
+            _ = await relay.ProcessPendingAsync(cancellationToken);
 
             var isPostgres = IsPostgres();
             await using var cn = await OpenConnectionAsync();
@@ -238,8 +247,30 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
                 new { OutboxEventId = outboxEventId }));
 
             if (predicate(row))
-                return;
+                return row;
+
+            lastRow = row;
+
+            if (row is not null && row.Status == 0)
+            {
+                await cn.ExecuteAsync(new CommandDefinition(
+                    isPostgres
+                        ? @"UPDATE ""Integration"".""IntegrationDeliveryLog""
+                            SET ""NextAttemptUtc"" = TIMEZONE('UTC', NOW()) - INTERVAL '1 second',
+                                ""LockedUntilUtc"" = NULL
+                            WHERE ""IdIntegrationDeliveryLog"" = @Id;"
+                        : @"UPDATE Integration.IntegrationDeliveryLog
+                            SET NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME()),
+                                LockedUntilUtc = NULL
+                            WHERE IdIntegrationDeliveryLog = @Id;",
+                    new { Id = row.IdIntegrationDeliveryLog },
+                    cancellationToken: cancellationToken));
+            }
+
+            await Task.Delay(150, cancellationToken);
         }
+
+        return lastRow;
     }
 
     private sealed class OutboxHelloResultDto

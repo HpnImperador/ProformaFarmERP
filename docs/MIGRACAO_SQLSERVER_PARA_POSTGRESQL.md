@@ -186,3 +186,15 @@ Saída esperada:
 Observação:
 - por padrão o script roda uma suíte filtrada de *readiness PostgreSQL* (autenticação) para evitar falso negativo de cenários ainda acoplados a SQL Server.
 - para incluir também a validação dedicada de Outbox/Relay no mesmo fluxo, adicione `-IncludeOutboxValidation`.
+
+## 10. Evidência mais recente de laboratório (25/02/2026)
+Validação executada com sucesso no servidor PostgreSQL do laboratório (`192.168.0.109`, database `proformafarm`) em **25 de fevereiro de 2026**:
+
+- comando executado:
+  - `scripts/lab-validate-postgres-outbox-relay.ps1` com `psql` local apontando para PostgreSQL 15.16;
+- resultados:
+  - suíte `Integration.Outbox`: **8/8 aprovados**;
+  - suíte completa `ProformaFarm.Application.Tests`: **87/87 aprovados**;
+  - snapshot pós-validação com eventos processados no `Core.OutboxEvent` e entregas registradas no `Integration.IntegrationDeliveryLog`;
+- evidência:
+  - `logs/lab-postgres-outbox-relay-20260225_175409.log`.

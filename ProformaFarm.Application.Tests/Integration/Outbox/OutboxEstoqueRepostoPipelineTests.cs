@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Extensions.Configuration;
@@ -29,9 +30,10 @@ public sealed class OutboxEstoqueRepostoPipelineTests : IClassFixture<CustomWebA
     [Fact]
     public async Task Entrada_deve_publicar_e_processar_evento_quando_repor_estoque_apos_faixa_baixa()
     {
+        var ct = TestContext.Current.CancellationToken;
         var setup = await EstoqueTestDataSetup.EnsureAsync(_factory);
         _ = await OutboxTestDataSetup.EnsureAsync(_factory);
-        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
+        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha, ct);
 
         var saida = await client.PostAsJsonAsync("/api/estoque/movimentacoes/saida", new
         {
@@ -41,7 +43,7 @@ public sealed class OutboxEstoqueRepostoPipelineTests : IClassFixture<CustomWebA
             idLote = setup.IdLote,
             quantidade = 90m,
             documentoReferencia = "IT-REPOSTO-SAIDA"
-        });
+        }, ct);
 
         Assert.Equal(HttpStatusCode.OK, saida.StatusCode);
 
@@ -53,7 +55,7 @@ public sealed class OutboxEstoqueRepostoPipelineTests : IClassFixture<CustomWebA
             idLote = setup.IdLote,
             quantidade = 25m,
             documentoReferencia = "IT-REPOSTO-ENTRADA"
-        });
+        }, ct);
 
         Assert.Equal(HttpStatusCode.OK, entrada.StatusCode);
 
@@ -100,7 +102,7 @@ public sealed class OutboxEstoqueRepostoPipelineTests : IClassFixture<CustomWebA
         var status = -1;
         for (var i = 0; i < 12; i++)
         {
-            _ = await processor.ProcessPendingAsync();
+            _ = await processor.ProcessPendingAsync(ct);
             status = await cn.ExecuteScalarAsync<int>(
                 isPostgres
                     ? "SELECT \"Status\" FROM \"Core\".\"OutboxEvent\" WHERE \"Id\" = @Id;"
@@ -127,7 +129,7 @@ public sealed class OutboxEstoqueRepostoPipelineTests : IClassFixture<CustomWebA
                         WHERE Id = @Id;",
                 new { Id = row.Id });
 
-            _ = await processor.ProcessPendingAsync();
+            _ = await processor.ProcessPendingAsync(ct);
             status = await cn.ExecuteScalarAsync<int>(
                 isPostgres
                     ? "SELECT \"Status\" FROM \"Core\".\"OutboxEvent\" WHERE \"Id\" = @Id;"
@@ -152,17 +154,17 @@ public sealed class OutboxEstoqueRepostoPipelineTests : IClassFixture<CustomWebA
         Assert.Equal(1, notificacoes);
     }
 
-    private async Task<HttpClient> CreateAuthenticatedClientAsync(string login, string senha)
+    private async Task<HttpClient> CreateAuthenticatedClientAsync(string login, string senha, CancellationToken cancellationToken)
     {
         var client = _factory.CreateClient();
         var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
             Login = login,
             Senha = senha
-        });
+        }, cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
-        var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>();
+        var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>(cancellationToken: cancellationToken);
         Assert.NotNull(loginBody);
         Assert.True(loginBody!.Success);
         Assert.NotNull(loginBody.Data);
@@ -189,7 +191,7 @@ public sealed class OutboxEstoqueRepostoPipelineTests : IClassFixture<CustomWebA
 
         var connection = (DbConnection)factory.CreateConnection();
         connection.ConnectionString = connectionString;
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         return connection;
     }
 

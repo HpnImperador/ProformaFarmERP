@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Extensions.Configuration;
@@ -31,17 +32,18 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
     [Fact]
     public async Task Comando_transacional_deve_persistir_evento_no_outbox()
     {
+        var ct = TestContext.Current.CancellationToken;
         var setup = await OutboxTestDataSetup.EnsureAsync(_factory);
-        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
+        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha, ct);
 
         var response = await client.PostAsJsonAsync("/api/outbox/hello-event", new
         {
             nomeEvento = "HELLO_OUTBOX_PERSISTENCIA",
             simularFalhaUmaVez = false
-        });
+        }, ct);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>();
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>(cancellationToken: ct);
         Assert.NotNull(body);
         Assert.True(body!.Success);
         Assert.NotNull(body.Data);
@@ -68,21 +70,22 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
     [Fact]
     public async Task Worker_deve_processar_evento_e_marcar_processed()
     {
+        var ct = TestContext.Current.CancellationToken;
         var setup = await OutboxTestDataSetup.EnsureAsync(_factory);
-        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
+        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha, ct);
 
         var response = await client.PostAsJsonAsync("/api/outbox/hello-event", new
         {
             nomeEvento = "HELLO_OUTBOX_PROCESS",
             simularFalhaUmaVez = false
-        });
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>();
+        }, ct);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>(cancellationToken: ct);
         Assert.NotNull(body);
         Assert.True(body!.Success);
         Assert.NotNull(body.Data);
 
         var processor = _factory.Services.GetRequiredService<IOutboxProcessor>();
-        _ = await processor.ProcessPendingAsync();
+        _ = await processor.ProcessPendingAsync(ct);
 
         var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
@@ -104,21 +107,22 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
     [Fact]
     public async Task Worker_deve_aplicar_retry_e_depois_processar()
     {
+        var ct = TestContext.Current.CancellationToken;
         var setup = await OutboxTestDataSetup.EnsureAsync(_factory);
-        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
+        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha, ct);
 
         var response = await client.PostAsJsonAsync("/api/outbox/hello-event", new
         {
             nomeEvento = "HELLO_OUTBOX_RETRY",
             simularFalhaUmaVez = true
-        });
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>();
+        }, ct);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>(cancellationToken: ct);
         Assert.NotNull(body);
         Assert.True(body!.Success);
         Assert.NotNull(body.Data);
 
         var processor = _factory.Services.GetRequiredService<IOutboxProcessor>();
-        _ = await processor.ProcessPendingAsync();
+        _ = await processor.ProcessPendingAsync(ct);
 
         var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
@@ -136,7 +140,7 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
                 : "UPDATE Core.OutboxEvent SET NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME()) WHERE Id = @Id;",
             new { Id = body.Data.EventId });
 
-        _ = await processor.ProcessPendingAsync();
+        _ = await processor.ProcessPendingAsync(ct);
 
         var second = await cn.QueryFirstAsync<OutboxRow>(
             isPostgres
@@ -157,22 +161,23 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
     [Fact]
     public async Task Worker_deve_ser_idempotente_por_event_id()
     {
+        var ct = TestContext.Current.CancellationToken;
         var setup = await OutboxTestDataSetup.EnsureAsync(_factory);
-        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
+        using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha, ct);
 
         var response = await client.PostAsJsonAsync("/api/outbox/hello-event", new
         {
             nomeEvento = "HELLO_OUTBOX_IDEMPOTENCIA",
             simularFalhaUmaVez = false
-        });
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>();
+        }, ct);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<OutboxHelloResultDto>>(cancellationToken: ct);
         Assert.NotNull(body);
         Assert.True(body!.Success);
         Assert.NotNull(body.Data);
 
         var processor = _factory.Services.GetRequiredService<IOutboxProcessor>();
-        _ = await processor.ProcessPendingAsync();
-        _ = await processor.ProcessPendingAsync();
+        _ = await processor.ProcessPendingAsync(ct);
+        _ = await processor.ProcessPendingAsync(ct);
 
         var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
@@ -199,17 +204,17 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
         Assert.Equal(1, processedCount);
     }
 
-    private async Task<HttpClient> CreateAuthenticatedClientAsync(string login, string senha)
+    private async Task<HttpClient> CreateAuthenticatedClientAsync(string login, string senha, CancellationToken cancellationToken)
     {
         var client = _factory.CreateClient();
         var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
             Login = login,
             Senha = senha
-        });
+        }, cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
-        var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>();
+        var loginBody = await loginResponse.Content.ReadFromJsonAsync<ApiResponse<LoginResponse>>(cancellationToken: cancellationToken);
         Assert.NotNull(loginBody);
         Assert.True(loginBody!.Success);
         Assert.NotNull(loginBody.Data);
@@ -236,7 +241,7 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
 
         var connection = (DbConnection)factory.CreateConnection();
         connection.ConnectionString = connectionString;
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         return connection;
     }
 
