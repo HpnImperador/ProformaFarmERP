@@ -96,6 +96,39 @@ function Ensure-PostgresConnInfo {
     return ($ConnectionString.TrimEnd() + " connect_timeout=8")
 }
 
+function Convert-ToNpgsqlConnectionString {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConnectionString
+    )
+
+    if ($ConnectionString -match "(?i)\bHost\s*=" -and $ConnectionString.Contains(";")) {
+        return $ConnectionString
+    }
+
+    $pgHost = Get-ConnectionValue -ConnectionString $ConnectionString -Keys @("host", "server")
+    $port = Get-ConnectionValue -ConnectionString $ConnectionString -Keys @("port")
+    $db = Get-ConnectionValue -ConnectionString $ConnectionString -Keys @("database", "dbname")
+    $user = Get-ConnectionValue -ConnectionString $ConnectionString -Keys @("username", "user", "user id", "userid")
+    $password = Get-ConnectionValue -ConnectionString $ConnectionString -Keys @("password", "pwd")
+
+    if ([string]::IsNullOrWhiteSpace($pgHost) -or [string]::IsNullOrWhiteSpace($db)) {
+        throw "Nao foi possivel converter a conexao PostgreSQL para formato Npgsql (host/database ausentes)."
+    }
+
+    if ([string]::IsNullOrWhiteSpace($port)) { $port = "5432" }
+
+    $parts = @(
+        "Host=$pgHost",
+        "Port=$port",
+        "Database=$db"
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($user)) { $parts += "Username=$user" }
+    if (-not [string]::IsNullOrWhiteSpace($password)) { $parts += "Password=$password" }
+
+    return ($parts -join ";")
+}
+
 function Assert-PostgresSafeMode {
     param(
         [Parameter(Mandatory = $true)][string]$PsqlCommand,
@@ -144,7 +177,7 @@ function Assert-PostgresSafeMode {
     }
 
     $connInfo = Ensure-PostgresConnInfo -ConnectionString $ConnectionString
-    $probeArgs = @($connInfo, "-w", "-t", "-A", "-c", "select current_database();")
+    $probeArgs = @("-w", "-d", $connInfo, "-t", "-A", "-c", "select current_database();")
     $probeOutput = & $PsqlCommand @probeArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Safe mode bloqueou a execução: falha ao validar conexão com psql."
@@ -203,7 +236,16 @@ ORDER BY metric, key;
 "@
 
     $connInfo = Ensure-PostgresConnInfo -ConnectionString $ConnectionString
-    Invoke-CommandChecked -Command $PsqlCommand -Arguments @($connInfo, "-w", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", $sql)
+    $tmpSql = Join-Path $env:TEMP ("pf_snapshot_" + [guid]::NewGuid().ToString("N") + ".sql")
+    try {
+        Set-Content -Path $tmpSql -Value $sql -Encoding UTF8
+        Invoke-CommandChecked -Command $PsqlCommand -Arguments @("-w", "-d", $connInfo, "-t", "-A", "-v", "ON_ERROR_STOP=1", "-f", $tmpSql)
+    }
+    finally {
+        if (Test-Path $tmpSql) {
+            Remove-Item $tmpSql -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Write-Host "ProformaFarmERP dev-loop iniciado..." -ForegroundColor Green
@@ -254,18 +296,20 @@ if ($ApplyPostgresScripts) {
     }
 
     $scripts = @(
+        "docs/sql/postgresql/000_auth_base_postgresql.sql",
         "docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql",
         "docs/sql/postgresql/002_seed_estrutura_organizacional_postgresql.sql",
         "docs/sql/postgresql/003_idx_lotacaousuario_orgcontext_postgresql.sql",
         "docs/sql/postgresql/004_estoque_basico_postgresql.sql",
         "docs/sql/postgresql/005_core_outbox_postgresql.sql",
-        "docs/sql/postgresql/006_integration_event_relay_postgresql.sql"
+        "docs/sql/postgresql/006_integration_event_relay_postgresql.sql",
+        "docs/sql/postgresql/007_compat_unquoted_aliases_postgresql.sql"
     )
 
     foreach ($script in $scripts) {
         Invoke-Step -Name "Aplicando $script" -Action {
             $connInfo = Ensure-PostgresConnInfo -ConnectionString $PostgresConnection
-            Invoke-CommandChecked -Command $PostgresPsql -Arguments @($connInfo, "-w", "-v", "ON_ERROR_STOP=1", "-f", $script)
+            Invoke-CommandChecked -Command $PostgresPsql -Arguments @("-w", "-d", $connInfo, "-v", "ON_ERROR_STOP=1", "-f", $script)
         }
     }
 }
@@ -295,7 +339,7 @@ if ($ValidatePostgresOutboxRelay) {
         $oldPg = $env:ConnectionStrings__PostgresConnection
         try {
             $env:Database__Provider = "PostgreSql"
-            $env:ConnectionStrings__PostgresConnection = $PostgresConnection
+            $env:ConnectionStrings__PostgresConnection = Convert-ToNpgsqlConnectionString -ConnectionString $PostgresConnection
 
             Invoke-CommandChecked -Command "dotnet" -Arguments @(
                 "test",

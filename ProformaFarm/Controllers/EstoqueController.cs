@@ -312,10 +312,10 @@ FROM dbo.UnidadeOrganizacional
 WHERE IdUnidadeOrganizacional = @IdUnidadeOrganizacional
   AND IdOrganizacao = @IdOrganizacao;";
     private const string UnidadeDaOrganizacaoSqlPg = @"
-SELECT IdUnidadeOrganizacional
-FROM dbo.UnidadeOrganizacional
-WHERE IdUnidadeOrganizacional = @IdUnidadeOrganizacional
-  AND IdOrganizacao = @IdOrganizacao
+SELECT ""IdUnidadeOrganizacional""
+FROM public.""UnidadeOrganizacional""
+WHERE ""IdUnidadeOrganizacional"" = @IdUnidadeOrganizacional
+  AND ""IdOrganizacao"" = @IdOrganizacao
 LIMIT 1;";
 
     private const string ProdutoDaOrganizacaoSql = @"
@@ -324,10 +324,10 @@ FROM dbo.Produto
 WHERE IdProduto = @IdProduto
   AND IdOrganizacao = @IdOrganizacao;";
     private const string ProdutoDaOrganizacaoSqlPg = @"
-SELECT IdProduto
-FROM dbo.Produto
-WHERE IdProduto = @IdProduto
-  AND IdOrganizacao = @IdOrganizacao
+SELECT ""IdProduto""
+FROM public.""Produto""
+WHERE ""IdProduto"" = @IdProduto
+  AND ""IdOrganizacao"" = @IdOrganizacao
 LIMIT 1;";
 
     private const string LoteDoProdutoSql = @"
@@ -337,11 +337,11 @@ WHERE IdLote = @IdLote
   AND IdOrganizacao = @IdOrganizacao
   AND IdProduto = @IdProduto;";
     private const string LoteDoProdutoSqlPg = @"
-SELECT IdLote
-FROM dbo.Lote
-WHERE IdLote = @IdLote
-  AND IdOrganizacao = @IdOrganizacao
-  AND IdProduto = @IdProduto
+SELECT ""IdLote""
+FROM public.""Lote""
+WHERE ""IdLote"" = @IdLote
+  AND ""IdOrganizacao"" = @IdOrganizacao
+  AND ""IdProduto"" = @IdProduto
 LIMIT 1;";
 
     private const string EstoqueForUpdateSql = @"
@@ -356,14 +356,14 @@ WHERE IdOrganizacao = @IdOrganizacao
   AND ((IdLote IS NULL AND @IdLote IS NULL) OR IdLote = @IdLote);";
     private const string EstoqueForUpdateSqlPg = @"
 SELECT
-    IdEstoque,
-    QuantidadeDisponivel,
-    QuantidadeReservada
-FROM dbo.Estoque
-WHERE IdOrganizacao = @IdOrganizacao
-  AND IdUnidadeOrganizacional = @IdUnidadeOrganizacional
-  AND IdProduto = @IdProduto
-  AND ((IdLote IS NULL AND @IdLote IS NULL) OR IdLote = @IdLote)
+    ""IdEstoque"",
+    ""QuantidadeDisponivel"",
+    ""QuantidadeReservada""
+FROM public.""Estoque""
+WHERE ""IdOrganizacao"" = @IdOrganizacao
+  AND ""IdUnidadeOrganizacional"" = @IdUnidadeOrganizacional
+  AND ""IdProduto"" = @IdProduto
+  AND ((""IdLote"" IS NULL AND @IdLote IS NULL) OR ""IdLote"" = @IdLote)
 FOR UPDATE
 LIMIT 1;";
 
@@ -374,16 +374,20 @@ OUTPUT INSERTED.IdEstoque
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @QuantidadeDisponivel, @QuantidadeReservada);";
     private const string InsertEstoqueSqlPg = @"
-INSERT INTO dbo.Estoque
-    (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, QuantidadeDisponivel, QuantidadeReservada)
+INSERT INTO public.""Estoque""
+    (""IdOrganizacao"", ""IdUnidadeOrganizacional"", ""IdProduto"", ""IdLote"", ""QuantidadeDisponivel"", ""QuantidadeReservada"")
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @QuantidadeDisponivel, @QuantidadeReservada)
-RETURNING IdEstoque;";
+RETURNING ""IdEstoque"";";
 
     private const string UpdateEstoqueSql = @"
 UPDATE dbo.Estoque
 SET QuantidadeDisponivel = @QuantidadeDisponivel
 WHERE IdEstoque = @IdEstoque;";
+    private const string UpdateEstoqueSqlPg = @"
+UPDATE public.""Estoque""
+SET ""QuantidadeDisponivel"" = @QuantidadeDisponivel
+WHERE ""IdEstoque"" = @IdEstoque;";
 
     private const string InsertMovimentacaoSql = @"
 INSERT INTO dbo.MovimentacaoEstoque
@@ -392,15 +396,20 @@ OUTPUT INSERTED.IdMovimentacaoEstoque
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @TipoMovimento, @Quantidade, @DocumentoReferencia, SYSUTCDATETIME());";
     private const string InsertMovimentacaoSqlPg = @"
-INSERT INTO dbo.MovimentacaoEstoque
-    (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, TipoMovimento, Quantidade, DocumentoReferencia, DataMovimento)
+INSERT INTO public.""MovimentacaoEstoque""
+    (""IdOrganizacao"", ""IdUnidadeOrganizacional"", ""IdProduto"", ""IdLote"", ""TipoMovimento"", ""Quantidade"", ""DocumentoReferencia"", ""DataMovimento"")
 VALUES
     (@IdOrganizacao, @IdUnidadeOrganizacional, @IdProduto, @IdLote, @TipoMovimento, @Quantidade, @DocumentoReferencia, @UtcNow)
-RETURNING IdMovimentacaoEstoque;";
+RETURNING ""IdMovimentacaoEstoque"";";
 
     private const string InsertOutboxEventSql = @"
 INSERT INTO Core.OutboxEvent
     (Id, OrganizacaoId, EventType, Payload, OccurredOnUtc, CorrelationId, Status, RetryCount, NextAttemptUtc)
+VALUES
+    (@Id, @OrganizacaoId, @EventType, @Payload, @OccurredOnUtc, @CorrelationId, 0, 0, @NextAttemptUtc);";
+    private const string InsertOutboxEventSqlPg = @"
+INSERT INTO ""Core"".""OutboxEvent""
+    (""Id"", ""OrganizacaoId"", ""EventType"", ""Payload"", ""OccurredOnUtc"", ""CorrelationId"", ""Status"", ""RetryCount"", ""NextAttemptUtc"")
 VALUES
     (@Id, @OrganizacaoId, @EventType, @Payload, @OccurredOnUtc, @CorrelationId, 0, 0, @NextAttemptUtc);";
 
@@ -450,6 +459,10 @@ LIMIT 1;";
 UPDATE dbo.ReservaEstoque
 SET Status = @Status
 WHERE IdReservaEstoque = @IdReservaEstoque;";
+    private const string UpdateReservaStatusSqlPg = @"
+UPDATE public.""ReservaEstoque""
+SET ""Status"" = @Status
+WHERE ""IdReservaEstoque"" = @IdReservaEstoque;";
 
     private const string ExpiredReservasForUpdateSql = @"
 SELECT
@@ -1336,7 +1349,7 @@ FOR UPDATE SKIP LOCKED;";
 
         var quantidadeMovimento = request.QuantidadeDisponivel - estoque.QuantidadeDisponivel;
         await cn.ExecuteAsync(new CommandDefinition(
-            UpdateEstoqueSql,
+            GetWriteSql(UpdateEstoqueSql, UpdateEstoqueSqlPg),
             new
             {
                 IdEstoque = estoque.IdEstoque,
@@ -1477,9 +1490,13 @@ FOR UPDATE SKIP LOCKED;";
 
         var novaReservada = estoque.QuantidadeReservada + request.Quantidade;
         await cn.ExecuteAsync(new CommandDefinition(
-            @"UPDATE dbo.Estoque
-              SET QuantidadeReservada = @QuantidadeReservada
-              WHERE IdEstoque = @IdEstoque;",
+            GetWriteSql(
+                @"UPDATE dbo.Estoque
+                  SET QuantidadeReservada = @QuantidadeReservada
+                  WHERE IdEstoque = @IdEstoque;",
+                @"UPDATE public.""Estoque""
+                  SET ""QuantidadeReservada"" = @QuantidadeReservada
+                  WHERE ""IdEstoque"" = @IdEstoque;"),
             new { QuantidadeReservada = novaReservada, estoque.IdEstoque },
             tx,
             cancellationToken: HttpContext.RequestAborted));
@@ -1591,17 +1608,21 @@ FOR UPDATE SKIP LOCKED;";
             if (estoque is not null)
             {
                 var reservadaAtualizada = Math.Max(0m, estoque.QuantidadeReservada - reserva.Quantidade);
-                await cn.ExecuteAsync(new CommandDefinition(
+            await cn.ExecuteAsync(new CommandDefinition(
+                GetWriteSql(
                     @"UPDATE dbo.Estoque
                       SET QuantidadeReservada = @QuantidadeReservada
                       WHERE IdEstoque = @IdEstoque;",
-                    new { QuantidadeReservada = reservadaAtualizada, estoque.IdEstoque },
-                    tx,
-                    cancellationToken: HttpContext.RequestAborted));
+                    @"UPDATE public.""Estoque""
+                      SET ""QuantidadeReservada"" = @QuantidadeReservada
+                      WHERE ""IdEstoque"" = @IdEstoque;"),
+                new { QuantidadeReservada = reservadaAtualizada, estoque.IdEstoque },
+                tx,
+                cancellationToken: HttpContext.RequestAborted));
             }
 
             await cn.ExecuteAsync(new CommandDefinition(
-                UpdateReservaStatusSql,
+                GetWriteSql(UpdateReservaStatusSql, UpdateReservaStatusSqlPg),
                 new { Status = "EXPIRADA", reserva.IdReservaEstoque },
                 tx,
                 cancellationToken: HttpContext.RequestAborted));
@@ -1700,7 +1721,7 @@ FOR UPDATE SKIP LOCKED;";
             }
 
             await cn.ExecuteAsync(new CommandDefinition(
-                UpdateEstoqueSql,
+                GetWriteSql(UpdateEstoqueSql, UpdateEstoqueSqlPg),
                 new
                 {
                     IdEstoque = estoque.IdEstoque,
@@ -1843,15 +1864,19 @@ FOR UPDATE SKIP LOCKED;";
         {
             var reservadaExpirada = Math.Max(0m, estoque.QuantidadeReservada - reserva.Quantidade);
             await cn.ExecuteAsync(new CommandDefinition(
-                @"UPDATE dbo.Estoque
-                  SET QuantidadeReservada = @QuantidadeReservada
-                  WHERE IdEstoque = @IdEstoque;",
+                GetWriteSql(
+                    @"UPDATE dbo.Estoque
+                      SET QuantidadeReservada = @QuantidadeReservada
+                      WHERE IdEstoque = @IdEstoque;",
+                    @"UPDATE public.""Estoque""
+                      SET ""QuantidadeReservada"" = @QuantidadeReservada
+                      WHERE ""IdEstoque"" = @IdEstoque;"),
                 new { QuantidadeReservada = reservadaExpirada, estoque.IdEstoque },
                 tx,
                 cancellationToken: HttpContext.RequestAborted));
 
             await cn.ExecuteAsync(new CommandDefinition(
-                UpdateReservaStatusSql,
+                GetWriteSql(UpdateReservaStatusSql, UpdateReservaStatusSqlPg),
                 new { Status = "EXPIRADA", IdReservaEstoque = idReservaEstoque },
                 tx,
                 cancellationToken: HttpContext.RequestAborted));
@@ -1888,10 +1913,15 @@ FOR UPDATE SKIP LOCKED;";
         }
 
         await cn.ExecuteAsync(new CommandDefinition(
-            @"UPDATE dbo.Estoque
-              SET QuantidadeReservada = @QuantidadeReservada,
-                  QuantidadeDisponivel = @QuantidadeDisponivel
-              WHERE IdEstoque = @IdEstoque;",
+            GetWriteSql(
+                @"UPDATE dbo.Estoque
+                  SET QuantidadeReservada = @QuantidadeReservada,
+                      QuantidadeDisponivel = @QuantidadeDisponivel
+                  WHERE IdEstoque = @IdEstoque;",
+                @"UPDATE public.""Estoque""
+                  SET ""QuantidadeReservada"" = @QuantidadeReservada,
+                      ""QuantidadeDisponivel"" = @QuantidadeDisponivel
+                  WHERE ""IdEstoque"" = @IdEstoque;"),
             new
             {
                 QuantidadeReservada = novaReservada,
@@ -1902,7 +1932,7 @@ FOR UPDATE SKIP LOCKED;";
             cancellationToken: HttpContext.RequestAborted));
 
         await cn.ExecuteAsync(new CommandDefinition(
-            UpdateReservaStatusSql,
+            GetWriteSql(UpdateReservaStatusSql, UpdateReservaStatusSqlPg),
             new { Status = acao, IdReservaEstoque = idReservaEstoque },
             tx,
             cancellationToken: HttpContext.RequestAborted));
@@ -1988,7 +2018,7 @@ FOR UPDATE SKIP LOCKED;";
             correlationId: _correlationIdAccessor.GetCurrentCorrelationId());
 
         await cn.ExecuteAsync(new CommandDefinition(
-            InsertOutboxEventSql,
+            GetWriteSql(InsertOutboxEventSql, InsertOutboxEventSqlPg),
             new
             {
                 Id = evt.EventId,
@@ -2035,7 +2065,7 @@ FOR UPDATE SKIP LOCKED;";
             correlationId: _correlationIdAccessor.GetCurrentCorrelationId());
 
         await cn.ExecuteAsync(new CommandDefinition(
-            InsertOutboxEventSql,
+            GetWriteSql(InsertOutboxEventSql, InsertOutboxEventSqlPg),
             new
             {
                 Id = evt.EventId,
@@ -2080,9 +2110,13 @@ FOR UPDATE SKIP LOCKED;";
         var reservadaAtualizada = Math.Max(0m, estoque.QuantidadeReservada - totalExpirado);
 
         await cn.ExecuteAsync(new CommandDefinition(
-            @"UPDATE dbo.Estoque
-              SET QuantidadeReservada = @QuantidadeReservada
-              WHERE IdEstoque = @IdEstoque;",
+            GetWriteSql(
+                @"UPDATE dbo.Estoque
+                  SET QuantidadeReservada = @QuantidadeReservada
+                  WHERE IdEstoque = @IdEstoque;",
+                @"UPDATE public.""Estoque""
+                  SET ""QuantidadeReservada"" = @QuantidadeReservada
+                  WHERE ""IdEstoque"" = @IdEstoque;"),
             new { QuantidadeReservada = reservadaAtualizada, estoque.IdEstoque },
             tx,
             cancellationToken: ct));
@@ -2090,7 +2124,7 @@ FOR UPDATE SKIP LOCKED;";
         foreach (var reserva in expiradas)
         {
             await cn.ExecuteAsync(new CommandDefinition(
-                UpdateReservaStatusSql,
+                GetWriteSql(UpdateReservaStatusSql, UpdateReservaStatusSqlPg),
                 new { Status = "EXPIRADA", IdReservaEstoque = reserva.IdReservaEstoque },
                 tx,
                 cancellationToken: ct));

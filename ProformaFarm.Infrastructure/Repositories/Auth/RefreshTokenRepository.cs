@@ -39,10 +39,10 @@ public sealed class RefreshTokenRepository : IRefreshTokenRepository
 
         var sql = _isPostgres
             ? @"
-INSERT INTO dbo.RefreshToken
-    (IdUsuario, TokenHash, ExpiraEmUtc, CriadoEmUtc, CriadoPorIp)
+INSERT INTO dbo.refreshtoken
+    (""IdUsuario"", ""TokenHash"", ""ExpiraEmUtc"", ""CriadoEmUtc"", ""CriadoPorIp"")
 VALUES
-    (@IdUsuario, @TokenHash, @ExpiraEmUtc, CURRENT_TIMESTAMP, @CriadoPorIp);
+    (@IdUsuario, @TokenHash, @ExpiraEmUtc, TIMEZONE('UTC', NOW()), @CriadoPorIp);
 "
             : @"
 INSERT INTO dbo.RefreshToken
@@ -74,20 +74,20 @@ VALUES
         var sql = _isPostgres
             ? @"
 SELECT
-    IdRefreshToken,
-    IdUsuario,
-    TokenHash,
-    CriadoEmUtc,
-    ExpiraEmUtc,
-    RevogadoEmUtc,
-    CriadoPorIp,
-    RevogadoPorIp,
-    SubstituidoPorHash
-FROM dbo.RefreshToken
-WHERE TokenHash = @TokenHash
-  AND RevogadoEmUtc IS NULL
-  AND ExpiraEmUtc > CURRENT_TIMESTAMP
-ORDER BY IdRefreshToken DESC
+    ""IdRefreshToken"",
+    ""IdUsuario"",
+    ""TokenHash"",
+    ""CriadoEmUtc"",
+    ""ExpiraEmUtc"",
+    ""RevogadoEmUtc"",
+    ""CriadoPorIp"",
+    ""RevogadoPorIp"",
+    ""SubstituidoPorHash""
+FROM dbo.refreshtoken
+WHERE ""TokenHash"" = @TokenHash
+  AND ""RevogadoEmUtc"" IS NULL
+  AND ""ExpiraEmUtc"" > TIMEZONE('UTC', NOW())
+ORDER BY ""IdRefreshToken"" DESC
 LIMIT 1;
 "
             : @"
@@ -127,7 +127,17 @@ ORDER BY IdRefreshToken DESC;
 
         using var cn = _factory.CreateConnection();
 
-        const string sql = @"
+        var sql = _isPostgres
+            ? @"
+UPDATE dbo.refreshtoken
+SET
+    ""RevogadoEmUtc""      = @RevogadoEmUtc,
+    ""RevogadoPorIp""      = @RevogadoPorIp,
+    ""SubstituidoPorHash"" = @SubstituidoPorHash
+WHERE ""IdRefreshToken"" = @IdRefreshToken
+  AND ""RevogadoEmUtc"" IS NULL;
+"
+            : @"
 UPDATE dbo.RefreshToken
 SET
     RevogadoEmUtc      = @RevogadoEmUtc,

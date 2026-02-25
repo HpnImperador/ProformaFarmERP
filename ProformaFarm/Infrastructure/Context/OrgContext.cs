@@ -121,7 +121,16 @@ public sealed class OrgContext : IOrgContext
 
         using var cn = _factory.CreateConnection();
 
-        var sql = @"
+        var sql = _isPostgres
+            ? @"
+SELECT COUNT(1)
+FROM public.""LotacaoUsuario"" lu
+INNER JOIN public.""UnidadeOrganizacional"" uo ON uo.""IdUnidadeOrganizacional"" = lu.""IdUnidadeOrganizacional""
+WHERE lu.""IdUsuario"" = @IdUsuario
+  AND lu.""Ativa"" = @AtivaTrue
+  AND uo.""IdOrganizacao"" = @IdOrganizacao;
+"
+            : @"
 SELECT COUNT(1)
 FROM dbo.LotacaoUsuario lu
 INNER JOIN dbo.UnidadeOrganizacional uo ON uo.IdUnidadeOrganizacional = lu.IdUnidadeOrganizacional
@@ -197,14 +206,14 @@ WHERE lu.IdUsuario = @IdUsuario
         var sql = _isPostgres
             ? @"
 SELECT
-    uo.IdOrganizacao,
-    lu.IdUnidadeOrganizacional
-FROM dbo.LotacaoUsuario lu
-INNER JOIN dbo.UnidadeOrganizacional uo ON uo.IdUnidadeOrganizacional = lu.IdUnidadeOrganizacional
-WHERE lu.IdUsuario = @IdUsuario
-  AND lu.Ativa = @AtivaTrue
-  AND (@IdDoHeader IS NULL OR uo.IdOrganizacao = @IdDoHeader)
-ORDER BY lu.Principal DESC, lu.IdLotacaoUsuario DESC
+    uo.""IdOrganizacao"" AS ""IdOrganizacao"",
+    lu.""IdUnidadeOrganizacional"" AS ""IdUnidadeOrganizacional""
+FROM public.""LotacaoUsuario"" lu
+INNER JOIN public.""UnidadeOrganizacional"" uo ON uo.""IdUnidadeOrganizacional"" = lu.""IdUnidadeOrganizacional""
+WHERE lu.""IdUsuario"" = @IdUsuario
+  AND lu.""Ativa"" = @AtivaTrue
+  AND (@IdDoHeader IS NULL OR uo.""IdOrganizacao"" = @IdDoHeader)
+ORDER BY lu.""Principal"" DESC, lu.""IdLotacaoUsuario"" DESC
 LIMIT 1;
 "
             : @"

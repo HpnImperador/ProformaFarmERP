@@ -47,20 +47,24 @@ Esse ambiente serÃ¡ usado como referÃªncia de homologaÃ§Ã£o da trilha Po
 ## 4.1 Scripts PostgreSQL disponibilizados
 Foram criadas versÃµes idempotentes dos scripts core em:
 
+- `docs/sql/postgresql/000_auth_base_postgresql.sql`
 - `docs/sql/postgresql/001_estrutura_organizacional_postgresql.sql`
 - `docs/sql/postgresql/002_seed_estrutura_organizacional_postgresql.sql`
 - `docs/sql/postgresql/003_idx_lotacaousuario_orgcontext_postgresql.sql`
 - `docs/sql/postgresql/004_estoque_basico_postgresql.sql`
 - `docs/sql/postgresql/005_core_outbox_postgresql.sql`
 - `docs/sql/postgresql/006_integration_event_relay_postgresql.sql`
+- `docs/sql/postgresql/007_compat_unquoted_aliases_postgresql.sql`
 
 Ordem de execuÃ§Ã£o recomendada no PostgreSQL:
+1. `000`
 1. `001`
 2. `002`
 3. `003`
 4. `004`
 5. `005`
 6. `006`
+7. `007`
 
 ## 5. Checklist tÃ©cnico de compatibilidade
 - Tipos:
@@ -160,3 +164,25 @@ powershell -ExecutionPolicy Bypass -File scripts/lab-validate-postgres-outbox-re
 Saída esperada:
 - execução do `dev-loop` em modo de validação PostgreSQL;
 - arquivo de log em `logs/lab-postgres-outbox-relay-<timestamp>.log` para anexar no checklist.
+
+### 9.2 Validação completa em lote (script único)
+Para executar uma bateria completa de validação de migração (precheck, scripts idempotentes, suíte completa de testes em PostgreSQL e validação dedicada do Outbox/Relay), use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/migration-validation.ps1 `
+  -PostgresHost <ubuntu_server_ip> `
+  -PostgresPort 5432 `
+  -PostgresDatabase proformafarm `
+  -PostgresUser <postgres_user> `
+  -PostgresPassword <postgres_password> `
+  -PsqlPath "<caminho_para_psql.exe>"
+```
+
+Saída esperada:
+- log técnico detalhado em `logs/migration-validation-<timestamp>.log`;
+- relatório executivo em `logs/migration-validation-<timestamp>.md`;
+- validação final aprovada para continuidade da migração.
+
+Observação:
+- por padrão o script roda uma suíte filtrada de *readiness PostgreSQL* (autenticação) para evitar falso negativo de cenários ainda acoplados a SQL Server.
+- para incluir também a validação dedicada de Outbox/Relay no mesmo fluxo, adicione `-IncludeOutboxValidation`.

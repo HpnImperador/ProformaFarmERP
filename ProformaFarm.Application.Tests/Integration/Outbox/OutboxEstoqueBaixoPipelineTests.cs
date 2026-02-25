@@ -1,15 +1,16 @@
 using System;
+using System.Data.Common;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Dapper;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ProformaFarm.Application.Common;
 using ProformaFarm.Application.DTOs.Auth;
+using ProformaFarm.Application.Interfaces.Data;
 using ProformaFarm.Application.Interfaces.Outbox;
 using ProformaFarm.Application.Tests.Common;
 using Xunit;
@@ -44,18 +45,31 @@ public sealed class OutboxEstoqueBaixoPipelineTests : IClassFixture<CustomWebApp
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
+        var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
         var row = await cn.QueryFirstOrDefaultAsync<OutboxRow>(
-            @"SELECT TOP (1)
-                  Id,
-                  OrganizacaoId,
-                  Status
-              FROM Core.OutboxEvent
-              WHERE EventType = @EventType
-                AND OrganizacaoId = @OrganizacaoId
-                AND JSON_VALUE(Payload, '$.IdProduto') = @IdProduto
-                AND JSON_VALUE(Payload, '$.OrigemMovimento') = 'SAIDA'
-              ORDER BY OccurredOnUtc DESC;",
+            isPostgres
+                ? @"SELECT
+                        ""Id"" AS Id,
+                        ""OrganizacaoId"" AS OrganizacaoId,
+                        ""Status"" AS Status
+                    FROM ""Core"".""OutboxEvent""
+                    WHERE ""EventType"" = @EventType
+                      AND ""OrganizacaoId"" = @OrganizacaoId
+                      AND (""Payload""::json ->> 'IdProduto') = @IdProduto
+                      AND (""Payload""::json ->> 'OrigemMovimento') = 'SAIDA'
+                    ORDER BY ""OccurredOnUtc"" DESC
+                    LIMIT 1;"
+                : @"SELECT TOP (1)
+                        Id,
+                        OrganizacaoId,
+                        Status
+                    FROM Core.OutboxEvent
+                    WHERE EventType = @EventType
+                      AND OrganizacaoId = @OrganizacaoId
+                      AND JSON_VALUE(Payload, '$.IdProduto') = @IdProduto
+                      AND JSON_VALUE(Payload, '$.OrigemMovimento') = 'SAIDA'
+                    ORDER BY OccurredOnUtc DESC;",
             new
             {
                 EventType = "ProformaFarm.Domain.Events.Estoque.EstoqueBaixoDomainEvent",
@@ -72,11 +86,15 @@ public sealed class OutboxEstoqueBaixoPipelineTests : IClassFixture<CustomWebApp
         _ = await processor.ProcessPendingAsync();
 
         var status = await cn.ExecuteScalarAsync<int>(
-            "SELECT Status FROM Core.OutboxEvent WHERE Id = @Id;",
+            isPostgres
+                ? "SELECT \"Status\" FROM \"Core\".\"OutboxEvent\" WHERE \"Id\" = @Id;"
+                : "SELECT Status FROM Core.OutboxEvent WHERE Id = @Id;",
             new { row.Id });
 
         var notificacoes = await cn.ExecuteScalarAsync<int>(
-            "SELECT COUNT(1) FROM Core.EstoqueBaixoNotificacao WHERE EventId = @EventId;",
+            isPostgres
+                ? "SELECT COUNT(1) FROM \"Core\".\"EstoqueBaixoNotificacao\" WHERE \"EventId\" = @EventId;"
+                : "SELECT COUNT(1) FROM Core.EstoqueBaixoNotificacao WHERE EventId = @EventId;",
             new { EventId = row.Id });
 
         Assert.Equal(2, status);
@@ -102,13 +120,24 @@ public sealed class OutboxEstoqueBaixoPipelineTests : IClassFixture<CustomWebApp
         return client;
     }
 
-    private async Task<SqlConnection> OpenConnectionAsync()
+    private async Task<DbConnection> OpenConnectionAsync()
     {
-        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
-        var connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("Connection string de teste nao configurada.");
+        var factory = _factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        var isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
 
-        var connection = new SqlConnection(connectionString);
+        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
+        var connectionString = isPostgres
+            ? Environment.GetEnvironmentVariable("ConnectionStrings__PostgresConnection")
+                ?? configuration.GetConnectionString("PostgresConnection")
+                ?? configuration.GetConnectionString("DefaultConnection")
+            : configuration.GetConnectionString("DefaultConnection");
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException("Connection string de teste nao configurada.");
+
+        var connection = (DbConnection)factory.CreateConnection();
+        connection.ConnectionString = connectionString;
         await connection.OpenAsync();
         return connection;
     }
@@ -118,5 +147,12 @@ public sealed class OutboxEstoqueBaixoPipelineTests : IClassFixture<CustomWebApp
         public Guid Id { get; set; }
         public int OrganizacaoId { get; set; }
         public int Status { get; set; }
+    }
+
+    private bool IsPostgres()
+    {
+        var factory = _factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        return factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 }

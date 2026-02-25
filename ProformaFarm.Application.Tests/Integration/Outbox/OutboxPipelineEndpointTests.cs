@@ -1,16 +1,17 @@
 using System;
 using System.Data;
+using System.Data.Common;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Dapper;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ProformaFarm.Application.Common;
 using ProformaFarm.Application.DTOs.Auth;
+using ProformaFarm.Application.Interfaces.Data;
 using ProformaFarm.Application.Interfaces.Outbox;
 using ProformaFarm.Application.Tests.Common;
 using Xunit;
@@ -45,11 +46,17 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
         Assert.True(body!.Success);
         Assert.NotNull(body.Data);
 
+        var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
         var row = await cn.QueryFirstOrDefaultAsync<OutboxRow>(
-            @"SELECT TOP (1) Id, OrganizacaoId, Status, RetryCount
-              FROM Core.OutboxEvent
-              WHERE Id = @Id;",
+            isPostgres
+                ? @"SELECT ""Id"" AS Id, ""OrganizacaoId"" AS OrganizacaoId, ""Status"" AS Status, ""RetryCount"" AS RetryCount
+                    FROM ""Core"".""OutboxEvent""
+                    WHERE ""Id"" = @Id
+                    LIMIT 1;"
+                : @"SELECT TOP (1) Id, OrganizacaoId, Status, RetryCount
+                    FROM Core.OutboxEvent
+                    WHERE Id = @Id;",
             new { Id = body.Data!.EventId });
 
         Assert.NotNull(row);
@@ -77,12 +84,17 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
         var processor = _factory.Services.GetRequiredService<IOutboxProcessor>();
         _ = await processor.ProcessPendingAsync();
 
+        var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
         var status = await cn.ExecuteScalarAsync<int>(
-            "SELECT Status FROM Core.OutboxEvent WHERE Id = @Id;",
+            isPostgres
+                ? "SELECT \"Status\" FROM \"Core\".\"OutboxEvent\" WHERE \"Id\" = @Id;"
+                : "SELECT Status FROM Core.OutboxEvent WHERE Id = @Id;",
             new { Id = body.Data!.EventId });
         var processedCount = await cn.ExecuteScalarAsync<int>(
-            "SELECT ProcessedCount FROM Core.OutboxHelloProbe WHERE IdOutboxHelloProbe = @Id;",
+            isPostgres
+                ? "SELECT \"ProcessedCount\" FROM \"Core\".\"OutboxHelloProbe\" WHERE \"IdOutboxHelloProbe\" = @Id;"
+                : "SELECT ProcessedCount FROM Core.OutboxHelloProbe WHERE IdOutboxHelloProbe = @Id;",
             new { Id = body.Data.IdOutboxHelloProbe });
 
         Assert.Equal(2, status);
@@ -108,24 +120,33 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
         var processor = _factory.Services.GetRequiredService<IOutboxProcessor>();
         _ = await processor.ProcessPendingAsync();
 
+        var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
         var first = await cn.QueryFirstAsync<OutboxRow>(
-            "SELECT Status, RetryCount FROM Core.OutboxEvent WHERE Id = @Id;",
+            isPostgres
+                ? "SELECT \"Status\" AS Status, \"RetryCount\" AS RetryCount FROM \"Core\".\"OutboxEvent\" WHERE \"Id\" = @Id;"
+                : "SELECT Status, RetryCount FROM Core.OutboxEvent WHERE Id = @Id;",
             new { Id = body.Data!.EventId });
         Assert.Equal(0, first.Status);
         Assert.Equal(1, first.RetryCount);
 
         await cn.ExecuteAsync(
-            "UPDATE Core.OutboxEvent SET NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME()) WHERE Id = @Id;",
+            isPostgres
+                ? "UPDATE \"Core\".\"OutboxEvent\" SET \"NextAttemptUtc\" = TIMEZONE('UTC', NOW()) - INTERVAL '1 second' WHERE \"Id\" = @Id;"
+                : "UPDATE Core.OutboxEvent SET NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME()) WHERE Id = @Id;",
             new { Id = body.Data.EventId });
 
         _ = await processor.ProcessPendingAsync();
 
         var second = await cn.QueryFirstAsync<OutboxRow>(
-            "SELECT Status, RetryCount FROM Core.OutboxEvent WHERE Id = @Id;",
+            isPostgres
+                ? "SELECT \"Status\" AS Status, \"RetryCount\" AS RetryCount FROM \"Core\".\"OutboxEvent\" WHERE \"Id\" = @Id;"
+                : "SELECT Status, RetryCount FROM Core.OutboxEvent WHERE Id = @Id;",
             new { Id = body.Data.EventId });
         var processedCount = await cn.ExecuteScalarAsync<int>(
-            "SELECT ProcessedCount FROM Core.OutboxHelloProbe WHERE IdOutboxHelloProbe = @Id;",
+            isPostgres
+                ? "SELECT \"ProcessedCount\" FROM \"Core\".\"OutboxHelloProbe\" WHERE \"IdOutboxHelloProbe\" = @Id;"
+                : "SELECT ProcessedCount FROM Core.OutboxHelloProbe WHERE IdOutboxHelloProbe = @Id;",
             new { Id = body.Data.IdOutboxHelloProbe });
 
         Assert.Equal(2, second.Status);
@@ -153,18 +174,25 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
         _ = await processor.ProcessPendingAsync();
         _ = await processor.ProcessPendingAsync();
 
+        var isPostgres = IsPostgres();
         using var cn = await OpenConnectionAsync();
         var dedupe = await cn.ExecuteScalarAsync<int>(
-            @"SELECT COUNT(1)
-              FROM Core.OutboxProcessedEvent
-              WHERE EventId = @EventId AND HandlerName = @HandlerName;",
+            isPostgres
+                ? @"SELECT COUNT(1)
+                    FROM ""Core"".""OutboxProcessedEvent""
+                    WHERE ""EventId"" = @EventId AND ""HandlerName"" = @HandlerName;"
+                : @"SELECT COUNT(1)
+                    FROM Core.OutboxProcessedEvent
+                    WHERE EventId = @EventId AND HandlerName = @HandlerName;",
             new
             {
                 EventId = body.Data!.EventId,
                 HandlerName = "HelloOutboxDomainEventHandler"
             });
         var processedCount = await cn.ExecuteScalarAsync<int>(
-            "SELECT ProcessedCount FROM Core.OutboxHelloProbe WHERE IdOutboxHelloProbe = @Id;",
+            isPostgres
+                ? "SELECT \"ProcessedCount\" FROM \"Core\".\"OutboxHelloProbe\" WHERE \"IdOutboxHelloProbe\" = @Id;"
+                : "SELECT ProcessedCount FROM Core.OutboxHelloProbe WHERE IdOutboxHelloProbe = @Id;",
             new { Id = body.Data.IdOutboxHelloProbe });
 
         Assert.Equal(1, dedupe);
@@ -190,15 +218,33 @@ public sealed class OutboxPipelineEndpointTests : IClassFixture<CustomWebApplica
         return client;
     }
 
-    private async Task<SqlConnection> OpenConnectionAsync()
+    private async Task<DbConnection> OpenConnectionAsync()
     {
-        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
-        var connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("Connection string de teste nao configurada.");
+        var factory = _factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        var isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
 
-        var connection = new SqlConnection(connectionString);
+        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
+        var connectionString = isPostgres
+            ? Environment.GetEnvironmentVariable("ConnectionStrings__PostgresConnection")
+                ?? configuration.GetConnectionString("PostgresConnection")
+                ?? configuration.GetConnectionString("DefaultConnection")
+            : configuration.GetConnectionString("DefaultConnection");
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException("Connection string de teste nao configurada.");
+
+        var connection = (DbConnection)factory.CreateConnection();
+        connection.ConnectionString = connectionString;
         await connection.OpenAsync();
         return connection;
+    }
+
+    private bool IsPostgres()
+    {
+        var factory = _factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        return factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 
     public sealed class OutboxHelloResultDto

@@ -1,22 +1,53 @@
 using System;
 using System.Data;
-using System.IO;
+using System.Data.Common;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ProformaFarm.Application.Interfaces.Data;
+using ProformaFarm.Application.Services.Security;
 
 namespace ProformaFarm.Application.Tests.Common;
 
 public static class OutboxTestDataSetup
 {
+    private const string Login = "it_org_admin";
+    private const string Senha = "It@Org123";
+    private const string Nome = "IT Organizacao Admin";
+    private const string Cnpj = "99999999000199";
+    private const string CodigoMatriz = "IT-MATRIZ";
+    private const string CodigoCargo = "IT-CARGO-GER";
+
     public static async Task<OutboxTestDataResult> EnsureAsync(CustomWebApplicationFactory factory)
     {
-        var org = await OrganizacaoTestDataSetup.EnsureAsync(factory);
-
         _ = factory.CreateClient();
-        var configuration = factory.Services.GetRequiredService<IConfiguration>();
+
+        var sqlFactory = factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        var isPostgres = sqlFactory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || sqlFactory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
+
+        if (!isPostgres)
+        {
+            var org = await OrganizacaoTestDataSetup.EnsureAsync(factory);
+            await EnsureSqlServerOutboxSchemaAsync(factory);
+
+            return new OutboxTestDataResult
+            {
+                IdOrganizacao = org.IdOrganizacao,
+                IdUnidade = org.IdUnidade,
+                Login = org.Login,
+                Senha = org.Senha
+            };
+        }
+
+            return await EnsurePostgresOutboxDataAsync(factory, sqlFactory);
+    }
+
+    private static async Task EnsureSqlServerOutboxSchemaAsync(CustomWebApplicationFactory factory)
+    {
+        var configuration = factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection nao configurada para testes.");
 
@@ -29,19 +60,139 @@ public static class OutboxTestDataSetup
             new { r = "PF_IT_OUTBOX_SETUP" },
             tx);
 
-        await EnsureOutboxSchemaAsync(connection, tx);
+        await EnsureOutboxSchemaSqlServerAsync(connection, tx);
+        await tx.CommitAsync();
+    }
+
+    private static async Task<OutboxTestDataResult> EnsurePostgresOutboxDataAsync(CustomWebApplicationFactory factory, ISqlConnectionFactory sqlFactory)
+    {
+        var configuration = factory.Services.GetRequiredService<IConfiguration>();
+        var pgConnection = Environment.GetEnvironmentVariable("ConnectionStrings__PostgresConnection")
+            ?? configuration.GetConnectionString("PostgresConnection")
+            ?? configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("Connection string PostgreSQL nao configurada para testes.");
+
+        using var db = sqlFactory.CreateConnection();
+        if (db is not DbConnection cn)
+            throw new InvalidOperationException("Conexao de banco nao suportada para testes.");
+        cn.ConnectionString = pgConnection;
+
+        await cn.OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+
+        await cn.ExecuteAsync("SELECT pg_advisory_xact_lock(hashtext(@r));", new { r = "PF_IT_OUTBOX_SETUP" }, tx);
+
+        var passwordService = new PasswordService();
+        var (hash, salt) = passwordService.HashPassword(Senha);
+
+        var idUsuario = await cn.ExecuteScalarAsync<int?>(
+            @"SELECT ""IdUsuario"" FROM public.""Usuario"" WHERE ""Login"" = @Login LIMIT 1;",
+            new { Login },
+            tx);
+
+        if (idUsuario.HasValue)
+        {
+            await cn.ExecuteAsync(
+                @"UPDATE public.""Usuario""
+                  SET ""Nome"" = @Nome,
+                      ""SenhaHash"" = @Hash,
+                      ""SenhaSalt"" = @Salt,
+                      ""Ativo"" = TRUE
+                  WHERE ""IdUsuario"" = @IdUsuario;",
+                new { Nome, Hash = hash, Salt = salt, IdUsuario = idUsuario.Value },
+                tx);
+        }
+        else
+        {
+            idUsuario = await cn.ExecuteScalarAsync<int>(
+                @"INSERT INTO public.""Usuario"" (""Nome"", ""Login"", ""SenhaHash"", ""SenhaSalt"", ""Ativo"", ""DataCriacao"")
+                  VALUES (@Nome, @Login, @Hash, @Salt, TRUE, TIMEZONE('UTC', NOW()))
+                  RETURNING ""IdUsuario"";",
+                new { Nome, Login, Hash = hash, Salt = salt },
+                tx);
+        }
+
+        var idOrganizacao = await cn.ExecuteScalarAsync<int?>(
+            @"SELECT ""IdOrganizacao"" FROM public.""Organizacao"" WHERE ""Cnpj"" = @Cnpj LIMIT 1;",
+            new { Cnpj },
+            tx);
+
+        if (!idOrganizacao.HasValue)
+        {
+            idOrganizacao = await cn.ExecuteScalarAsync<int>(
+                @"INSERT INTO public.""Organizacao"" (""RazaoSocial"", ""NomeFantasia"", ""Cnpj"", ""Ativa"", ""DataCriacao"")
+                  VALUES ('IT Organizacao Ltda', 'IT Org', @Cnpj, TRUE, TIMEZONE('UTC', NOW()))
+                  RETURNING ""IdOrganizacao"";",
+                new { Cnpj },
+                tx);
+        }
+
+        var idMatriz = await cn.ExecuteScalarAsync<int?>(
+            @"SELECT ""IdUnidadeOrganizacional""
+              FROM public.""UnidadeOrganizacional""
+              WHERE ""IdOrganizacao"" = @IdOrganizacao AND ""Codigo"" = @Codigo
+              LIMIT 1;",
+            new { IdOrganizacao = idOrganizacao.Value, Codigo = CodigoMatriz },
+            tx);
+
+        if (!idMatriz.HasValue)
+        {
+            idMatriz = await cn.ExecuteScalarAsync<int>(
+                @"INSERT INTO public.""UnidadeOrganizacional""
+                  (""IdOrganizacao"", ""IdUnidadePai"", ""Tipo"", ""Codigo"", ""Nome"", ""Ativa"", ""DataInicio"", ""DataFim"")
+                  VALUES (@IdOrganizacao, NULL, 'Matriz', @Codigo, 'IT Matriz', TRUE, TIMEZONE('UTC', NOW()), NULL)
+                  RETURNING ""IdUnidadeOrganizacional"";",
+                new { IdOrganizacao = idOrganizacao.Value, Codigo = CodigoMatriz },
+                tx);
+        }
+
+        var idCargo = await cn.ExecuteScalarAsync<int?>(
+            @"SELECT ""IdCargo"" FROM public.""Cargo""
+              WHERE ""IdOrganizacao"" = @IdOrganizacao AND ""Codigo"" = @Codigo
+              LIMIT 1;",
+            new { IdOrganizacao = idOrganizacao.Value, Codigo = CodigoCargo },
+            tx);
+
+        if (!idCargo.HasValue)
+        {
+            idCargo = await cn.ExecuteScalarAsync<int>(
+                @"INSERT INTO public.""Cargo"" (""IdOrganizacao"", ""Codigo"", ""Nome"", ""Ativo"")
+                  VALUES (@IdOrganizacao, @Codigo, 'IT Gerente', TRUE)
+                  RETURNING ""IdCargo"";",
+                new { IdOrganizacao = idOrganizacao.Value, Codigo = CodigoCargo },
+                tx);
+        }
+
+        var lotacao = await cn.ExecuteScalarAsync<int?>(
+            @"SELECT ""IdLotacaoUsuario""
+              FROM public.""LotacaoUsuario""
+              WHERE ""IdUsuario"" = @IdUsuario AND ""Principal"" = TRUE AND ""Ativa"" = TRUE
+              LIMIT 1;",
+            new { IdUsuario = idUsuario.Value },
+            tx);
+
+        if (!lotacao.HasValue)
+        {
+            await cn.ExecuteAsync(
+                @"INSERT INTO public.""LotacaoUsuario""
+                  (""IdUsuario"", ""IdUnidadeOrganizacional"", ""IdCargo"", ""DataInicio"", ""DataFim"", ""Principal"", ""Ativa"")
+                  VALUES (@IdUsuario, @IdUnidade, @IdCargo, TIMEZONE('UTC', NOW()), NULL, TRUE, TRUE);",
+                new { IdUsuario = idUsuario.Value, IdUnidade = idMatriz.Value, IdCargo = idCargo.Value },
+                tx);
+        }
+
         await tx.CommitAsync();
 
         return new OutboxTestDataResult
         {
-            IdOrganizacao = org.IdOrganizacao,
-            IdUnidade = org.IdUnidade,
-            Login = org.Login,
-            Senha = org.Senha
+            IdOrganizacao = idOrganizacao.Value,
+            IdUnidade = idMatriz.Value,
+            Login = Login,
+            Senha = Senha
         };
     }
 
-    private static Task EnsureOutboxSchemaAsync(IDbConnection connection, IDbTransaction transaction)
+    private static Task EnsureOutboxSchemaSqlServerAsync(IDbConnection connection, IDbTransaction transaction)
     {
         const string sql = @"
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'Core')

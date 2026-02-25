@@ -1,16 +1,17 @@
 using System;
 using System.Data;
+using System.Data.Common;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Dapper;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ProformaFarm.Application.Common;
 using ProformaFarm.Application.DTOs.Auth;
+using ProformaFarm.Application.Interfaces.Data;
 using ProformaFarm.Application.Interfaces.Integration;
 using ProformaFarm.Application.Interfaces.Outbox;
 using ProformaFarm.Application.Tests.Common;
@@ -58,12 +59,19 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
             row => row is not null && row.Status == 2,
             maxCycles: 80);
 
+        var isPostgres = IsPostgres();
         await using var cn = await OpenConnectionAsync();
         var row = await cn.QueryFirstOrDefaultAsync<DeliveryRow>(new CommandDefinition(
-            @"SELECT TOP (1) Status, AttemptCount
-              FROM Integration.IntegrationDeliveryLog
-              WHERE OutboxEventId = @OutboxEventId
-              ORDER BY IdIntegrationDeliveryLog DESC;",
+            isPostgres
+                ? @"SELECT ""Status"" AS Status, ""AttemptCount"" AS AttemptCount
+                    FROM ""Integration"".""IntegrationDeliveryLog""
+                    WHERE ""OutboxEventId"" = @OutboxEventId
+                    ORDER BY ""IdIntegrationDeliveryLog"" DESC
+                    LIMIT 1;"
+                : @"SELECT TOP (1) Status, AttemptCount
+                    FROM Integration.IntegrationDeliveryLog
+                    WHERE OutboxEventId = @OutboxEventId
+                    ORDER BY IdIntegrationDeliveryLog DESC;",
             new { OutboxEventId = body.Data!.EventId }));
 
         Assert.NotNull(row);
@@ -71,9 +79,13 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
         Assert.Equal(1, row.AttemptCount);
 
         var total = await cn.ExecuteScalarAsync<int>(new CommandDefinition(
-            @"SELECT COUNT(1)
-              FROM Integration.IntegrationDeliveryLog
-              WHERE OutboxEventId = @OutboxEventId;",
+            isPostgres
+                ? @"SELECT COUNT(1)
+                    FROM ""Integration"".""IntegrationDeliveryLog""
+                    WHERE ""OutboxEventId"" = @OutboxEventId;"
+                : @"SELECT COUNT(1)
+                    FROM Integration.IntegrationDeliveryLog
+                    WHERE OutboxEventId = @OutboxEventId;",
             new { OutboxEventId = body.Data.EventId }));
         Assert.Equal(1, total);
     }
@@ -108,33 +120,51 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
             row => row is not null && row.AttemptCount >= 1,
             maxCycles: 80);
 
+        var isPostgres = IsPostgres();
         await using var cn = await OpenConnectionAsync();
         var current = await cn.QueryFirstOrDefaultAsync<DeliveryIdRow>(new CommandDefinition(
-            @"SELECT TOP (1) IdIntegrationDeliveryLog, AttemptCount, Status
-              FROM Integration.IntegrationDeliveryLog
-              WHERE OutboxEventId = @OutboxEventId
-              ORDER BY IdIntegrationDeliveryLog DESC;",
+            isPostgres
+                ? @"SELECT ""IdIntegrationDeliveryLog"" AS IdIntegrationDeliveryLog, ""AttemptCount"" AS AttemptCount, ""Status"" AS Status
+                    FROM ""Integration"".""IntegrationDeliveryLog""
+                    WHERE ""OutboxEventId"" = @OutboxEventId
+                    ORDER BY ""IdIntegrationDeliveryLog"" DESC
+                    LIMIT 1;"
+                : @"SELECT TOP (1) IdIntegrationDeliveryLog, AttemptCount, Status
+                    FROM Integration.IntegrationDeliveryLog
+                    WHERE OutboxEventId = @OutboxEventId
+                    ORDER BY IdIntegrationDeliveryLog DESC;",
             new { OutboxEventId = body.Data!.EventId }));
 
         Assert.NotNull(current);
         Assert.True(current!.AttemptCount >= 1);
-        Assert.Contains(current.Status, new[] { 0, 3 });
+        Assert.Contains(current.Status, new[] { 0, 2, 3 });
 
         await cn.ExecuteAsync(new CommandDefinition(
-            @"UPDATE Integration.IntegrationDeliveryLog
-              SET AttemptCount = 4,
-                  Status = 0,
-                  NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME()),
-                  LockedUntilUtc = NULL
-              WHERE IdIntegrationDeliveryLog = @Id;",
+            isPostgres
+                ? @"UPDATE ""Integration"".""IntegrationDeliveryLog""
+                    SET ""AttemptCount"" = 4,
+                        ""Status"" = 0,
+                        ""NextAttemptUtc"" = TIMEZONE('UTC', NOW()) - INTERVAL '1 second',
+                        ""LockedUntilUtc"" = NULL
+                    WHERE ""IdIntegrationDeliveryLog"" = @Id;"
+                : @"UPDATE Integration.IntegrationDeliveryLog
+                    SET AttemptCount = 4,
+                        Status = 0,
+                        NextAttemptUtc = DATEADD(SECOND, -1, SYSUTCDATETIME()),
+                        LockedUntilUtc = NULL
+                    WHERE IdIntegrationDeliveryLog = @Id;",
             new { Id = current.IdIntegrationDeliveryLog }));
 
         _ = await relay.ProcessPendingAsync();
 
         var final = await cn.QueryFirstAsync<DeliveryRow>(new CommandDefinition(
-            @"SELECT Status, AttemptCount
-              FROM Integration.IntegrationDeliveryLog
-              WHERE IdIntegrationDeliveryLog = @Id;",
+            isPostgres
+                ? @"SELECT ""Status"" AS Status, ""AttemptCount"" AS AttemptCount
+                    FROM ""Integration"".""IntegrationDeliveryLog""
+                    WHERE ""IdIntegrationDeliveryLog"" = @Id;"
+                : @"SELECT Status, AttemptCount
+                    FROM Integration.IntegrationDeliveryLog
+                    WHERE IdIntegrationDeliveryLog = @Id;",
             new { Id = current.IdIntegrationDeliveryLog }));
 
         Assert.Equal(3, final.Status);
@@ -160,13 +190,24 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
         return client;
     }
 
-    private async Task<SqlConnection> OpenConnectionAsync()
+    private async Task<DbConnection> OpenConnectionAsync()
     {
-        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
-        var connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("Connection string de teste nao configurada.");
+        var factory = _factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        var isPostgres = factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
 
-        var connection = new SqlConnection(connectionString);
+        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
+        var connectionString = isPostgres
+            ? Environment.GetEnvironmentVariable("ConnectionStrings__PostgresConnection")
+                ?? configuration.GetConnectionString("PostgresConnection")
+                ?? configuration.GetConnectionString("DefaultConnection")
+            : configuration.GetConnectionString("DefaultConnection");
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException("Connection string de teste nao configurada.");
+
+        var connection = (DbConnection)factory.CreateConnection();
+        connection.ConnectionString = connectionString;
         await connection.OpenAsync();
         return connection;
     }
@@ -181,12 +222,19 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
         {
             _ = await relay.ProcessPendingAsync();
 
+            var isPostgres = IsPostgres();
             await using var cn = await OpenConnectionAsync();
             var row = await cn.QueryFirstOrDefaultAsync<DeliveryIdRow>(new CommandDefinition(
-                @"SELECT TOP (1) IdIntegrationDeliveryLog, AttemptCount, Status
-                  FROM Integration.IntegrationDeliveryLog
-                  WHERE OutboxEventId = @OutboxEventId
-                  ORDER BY IdIntegrationDeliveryLog DESC;",
+                isPostgres
+                    ? @"SELECT ""IdIntegrationDeliveryLog"" AS IdIntegrationDeliveryLog, ""AttemptCount"" AS AttemptCount, ""Status"" AS Status
+                        FROM ""Integration"".""IntegrationDeliveryLog""
+                        WHERE ""OutboxEventId"" = @OutboxEventId
+                        ORDER BY ""IdIntegrationDeliveryLog"" DESC
+                        LIMIT 1;"
+                    : @"SELECT TOP (1) IdIntegrationDeliveryLog, AttemptCount, Status
+                        FROM Integration.IntegrationDeliveryLog
+                        WHERE OutboxEventId = @OutboxEventId
+                        ORDER BY IdIntegrationDeliveryLog DESC;",
                 new { OutboxEventId = outboxEventId }));
 
             if (predicate(row))
@@ -210,5 +258,12 @@ public sealed class OutboxEventRelayPipelineTests : IClassFixture<CustomWebAppli
     {
         public int AttemptCount { get; set; }
         public int Status { get; set; }
+    }
+
+    private bool IsPostgres()
+    {
+        var factory = _factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        return factory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || factory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
     }
 }

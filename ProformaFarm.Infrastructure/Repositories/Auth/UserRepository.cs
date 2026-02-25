@@ -30,9 +30,9 @@ public sealed class UserRepository : IUserRepository
         var sql = _isPostgres
             ? @"
 SELECT
-    IdUsuario, Nome, Login, SenhaHash, SenhaSalt, Ativo, DataCriacao
-FROM dbo.Usuario
-WHERE Login = @Login
+    ""IdUsuario"", ""Nome"", ""Login"", ""SenhaHash"", ""SenhaSalt"", ""Ativo"", ""DataCriacao""
+FROM dbo.usuario
+WHERE ""Login"" = @Login
 LIMIT 1;
 "
             : @"
@@ -51,7 +51,14 @@ WHERE Login = @Login;
 
         using var cn = _factory.CreateConnection();
 
-        const string sql = @"
+        var sql = _isPostgres
+            ? @"
+SELECT p.""Nome""
+FROM dbo.usuarioperfil up
+JOIN dbo.perfil p ON p.""IdPerfil"" = up.""IdPerfil""
+WHERE up.""IdUsuario"" = @IdUsuario;
+"
+            : @"
 SELECT p.Nome
 FROM dbo.UsuarioPerfil up
 JOIN dbo.Perfil p ON p.IdPerfil = up.IdPerfil

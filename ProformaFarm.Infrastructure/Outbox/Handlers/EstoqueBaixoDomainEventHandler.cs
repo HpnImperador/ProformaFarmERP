@@ -24,46 +24,81 @@ public sealed class EstoqueBaixoDomainEventHandler : IOutboxEventHandler
         var evt = payload as EstoqueBaixoDomainEvent
             ?? throw new InvalidOperationException("Payload invalido para EstoqueBaixoDomainEventHandler.");
 
+        var isPostgres = connection.GetType().Name.Contains("Npgsql", StringComparison.OrdinalIgnoreCase);
         await connection.ExecuteAsync(new CommandDefinition(
-            @"IF NOT EXISTS (
-                  SELECT 1
-                  FROM Core.EstoqueBaixoNotificacao
-                  WHERE EventId = @EventId
-              )
-              BEGIN
-                  INSERT INTO Core.EstoqueBaixoNotificacao
-                  (
-                      EventId,
-                      OrganizacaoId,
-                      IdUnidadeOrganizacional,
-                      IdProduto,
-                      IdLote,
-                      QuantidadeDisponivel,
-                      QuantidadeReservada,
-                      QuantidadeLiquida,
-                      LimiteEstoqueBaixo,
-                      OrigemMovimento,
-                      DocumentoReferencia,
-                      CorrelationId,
-                      DetectadoEmUtc
+            isPostgres
+                ? @"INSERT INTO ""Core"".""EstoqueBaixoNotificacao""
+                    (
+                        ""EventId"",
+                        ""OrganizacaoId"",
+                        ""IdUnidadeOrganizacional"",
+                        ""IdProduto"",
+                        ""IdLote"",
+                        ""QuantidadeDisponivel"",
+                        ""QuantidadeReservada"",
+                        ""QuantidadeLiquida"",
+                        ""LimiteEstoqueBaixo"",
+                        ""OrigemMovimento"",
+                        ""DocumentoReferencia"",
+                        ""CorrelationId"",
+                        ""DetectadoEmUtc""
+                    )
+                    VALUES
+                    (
+                        @EventId,
+                        @OrganizacaoId,
+                        @IdUnidadeOrganizacional,
+                        @IdProduto,
+                        @IdLote,
+                        @QuantidadeDisponivel,
+                        @QuantidadeReservada,
+                        @QuantidadeLiquida,
+                        @LimiteEstoqueBaixo,
+                        @OrigemMovimento,
+                        @DocumentoReferencia,
+                        @CorrelationId,
+                        @DetectadoEmUtc
+                    )
+                    ON CONFLICT (""EventId"") DO NOTHING;"
+                : @"IF NOT EXISTS (
+                      SELECT 1
+                      FROM Core.EstoqueBaixoNotificacao
+                      WHERE EventId = @EventId
                   )
-                  VALUES
-                  (
-                      @EventId,
-                      @OrganizacaoId,
-                      @IdUnidadeOrganizacional,
-                      @IdProduto,
-                      @IdLote,
-                      @QuantidadeDisponivel,
-                      @QuantidadeReservada,
-                      @QuantidadeLiquida,
-                      @LimiteEstoqueBaixo,
-                      @OrigemMovimento,
-                      @DocumentoReferencia,
-                      @CorrelationId,
-                      @DetectadoEmUtc
-                  );
-              END;",
+                  BEGIN
+                      INSERT INTO Core.EstoqueBaixoNotificacao
+                      (
+                          EventId,
+                          OrganizacaoId,
+                          IdUnidadeOrganizacional,
+                          IdProduto,
+                          IdLote,
+                          QuantidadeDisponivel,
+                          QuantidadeReservada,
+                          QuantidadeLiquida,
+                          LimiteEstoqueBaixo,
+                          OrigemMovimento,
+                          DocumentoReferencia,
+                          CorrelationId,
+                          DetectadoEmUtc
+                      )
+                      VALUES
+                      (
+                          @EventId,
+                          @OrganizacaoId,
+                          @IdUnidadeOrganizacional,
+                          @IdProduto,
+                          @IdLote,
+                          @QuantidadeDisponivel,
+                          @QuantidadeReservada,
+                          @QuantidadeLiquida,
+                          @LimiteEstoqueBaixo,
+                          @OrigemMovimento,
+                          @DocumentoReferencia,
+                          @CorrelationId,
+                          @DetectadoEmUtc
+                      );
+                  END;",
             new
             {
                 evt.EventId,

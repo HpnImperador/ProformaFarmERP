@@ -1,10 +1,12 @@
 using System;
 using System.Data;
+using System.Data.Common;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ProformaFarm.Application.Interfaces.Data;
 
 namespace ProformaFarm.Application.Tests.Common;
 
@@ -21,6 +23,24 @@ public static class EstoqueTestDataSetup
         var refReservaExpirada = $"IT-RES-EXPIRED-{testKey}";
 
         _ = factory.CreateClient();
+        var sqlFactory = factory.Services.GetRequiredService<ISqlConnectionFactory>();
+        var isPostgres = sqlFactory.ProviderName.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase)
+            || sqlFactory.ProviderName.Equals("Postgres", StringComparison.OrdinalIgnoreCase);
+
+        return isPostgres
+            ? await EnsurePostgresAsync(factory, sqlFactory, orgSetup, codigoProduto, nomeProduto, numeroLote, refReservaAtiva, refReservaExpirada)
+            : await EnsureSqlServerAsync(factory, orgSetup, codigoProduto, nomeProduto, numeroLote, refReservaAtiva, refReservaExpirada);
+    }
+
+    private static async Task<EstoqueTestDataResult> EnsureSqlServerAsync(
+        CustomWebApplicationFactory factory,
+        OrganizacaoTestDataResult orgSetup,
+        string codigoProduto,
+        string nomeProduto,
+        string numeroLote,
+        string refReservaAtiva,
+        string refReservaExpirada)
+    {
         var configuration = factory.Services.GetRequiredService<IConfiguration>();
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection nao configurada para testes.");
@@ -34,34 +54,49 @@ public static class EstoqueTestDataSetup
                 await cn.OpenAsync();
 
                 await using var tx = await cn.BeginTransactionAsync();
-
                 await cn.ExecuteAsync(
                     "EXEC sp_getapplock @Resource=@r, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=15000;",
                     new { r = "PF_IT_ESTOQUE_SETUP" },
                     tx);
 
-                var idProduto = await UpsertProdutoAsync(cn, tx, orgSetup.IdOrganizacao, codigoProduto, nomeProduto);
-                var idLote = await UpsertLoteAsync(cn, tx, orgSetup.IdOrganizacao, idProduto, numeroLote);
-                var idEstoque = await UpsertEstoqueAsync(cn, tx, orgSetup.IdOrganizacao, orgSetup.IdUnidade, idProduto, idLote);
-                var idReservaAtiva = await UpsertReservaAtivaAsync(cn, tx, orgSetup.IdOrganizacao, orgSetup.IdUnidade, idProduto, idLote, refReservaAtiva);
-                var idReservaExpirada = await UpsertReservaExpiradaAsync(cn, tx, orgSetup.IdOrganizacao, orgSetup.IdUnidade, idProduto, idLote, refReservaExpirada);
+                var idProduto = await cn.ExecuteScalarAsync<int>(
+                    @"INSERT INTO dbo.Produto (IdOrganizacao, Codigo, Nome, ControlaLote, Ativo)
+                      OUTPUT INSERTED.IdProduto
+                      VALUES (@IdOrganizacao, @Codigo, @Nome, 1, 1);",
+                    new { IdOrganizacao = orgSetup.IdOrganizacao, Codigo = codigoProduto, Nome = nomeProduto },
+                    tx);
+
+                var idLote = await cn.ExecuteScalarAsync<int>(
+                    @"INSERT INTO dbo.Lote (IdOrganizacao, IdProduto, NumeroLote, DataFabricacao, DataValidade, Bloqueado)
+                      OUTPUT INSERTED.IdLote
+                      VALUES (@IdOrganizacao, @IdProduto, @NumeroLote, DATEADD(DAY, -30, SYSUTCDATETIME()), DATEADD(DAY, 365, SYSUTCDATETIME()), 0);",
+                    new { IdOrganizacao = orgSetup.IdOrganizacao, IdProduto = idProduto, NumeroLote = numeroLote },
+                    tx);
+
+                var idEstoque = await cn.ExecuteScalarAsync<int>(
+                    @"INSERT INTO dbo.Estoque (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, QuantidadeDisponivel, QuantidadeReservada)
+                      OUTPUT INSERTED.IdEstoque
+                      VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 120, 20);",
+                    new { IdOrganizacao = orgSetup.IdOrganizacao, IdUnidade = orgSetup.IdUnidade, IdProduto = idProduto, IdLote = idLote },
+                    tx);
+
+                var idReservaAtiva = await cn.ExecuteScalarAsync<int>(
+                    @"INSERT INTO dbo.ReservaEstoque (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, Quantidade, ExpiraEmUtc, Status, DocumentoReferencia)
+                      OUTPUT INSERTED.IdReservaEstoque
+                      VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 10, DATEADD(HOUR, 2, SYSUTCDATETIME()), N'ATIVA', @DocumentoReferencia);",
+                    new { IdOrganizacao = orgSetup.IdOrganizacao, IdUnidade = orgSetup.IdUnidade, IdProduto = idProduto, IdLote = idLote, DocumentoReferencia = refReservaAtiva },
+                    tx);
+
+                var idReservaExpirada = await cn.ExecuteScalarAsync<int>(
+                    @"INSERT INTO dbo.ReservaEstoque (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, Quantidade, ExpiraEmUtc, Status, DocumentoReferencia)
+                      OUTPUT INSERTED.IdReservaEstoque
+                      VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 4, DATEADD(HOUR, -2, SYSUTCDATETIME()), N'ATIVA', @DocumentoReferencia);",
+                    new { IdOrganizacao = orgSetup.IdOrganizacao, IdUnidade = orgSetup.IdUnidade, IdProduto = idProduto, IdLote = idLote, DocumentoReferencia = refReservaExpirada },
+                    tx);
 
                 await tx.CommitAsync();
 
-                return new EstoqueTestDataResult
-                {
-                    IdOrganizacao = orgSetup.IdOrganizacao,
-                    IdUnidade = orgSetup.IdUnidade,
-                    IdProduto = idProduto,
-                    IdLote = idLote,
-                    IdEstoque = idEstoque,
-                    IdReservaAtiva = idReservaAtiva,
-                    IdReservaExpirada = idReservaExpirada,
-                    CodigoProduto = codigoProduto,
-                    DocumentoReservaAtiva = refReservaAtiva,
-                    Login = orgSetup.Login,
-                    Senha = orgSetup.Senha
-                };
+                return BuildResult(orgSetup, idProduto, idLote, idEstoque, idReservaAtiva, idReservaExpirada, codigoProduto, refReservaAtiva);
             }
             catch (SqlException ex) when (ex.Number == 1205 && attempt < maxRetries)
             {
@@ -72,96 +107,96 @@ public static class EstoqueTestDataSetup
         throw new InvalidOperationException("Falha ao preparar dados de estoque apos retries por deadlock.");
     }
 
-    private static async Task<int> UpsertProdutoAsync(IDbConnection cn, IDbTransaction tx, int idOrganizacao, string codigoProduto, string nomeProduto)
+    private static async Task<EstoqueTestDataResult> EnsurePostgresAsync(
+        CustomWebApplicationFactory factory,
+        ISqlConnectionFactory sqlFactory,
+        OrganizacaoTestDataResult orgSetup,
+        string codigoProduto,
+        string nomeProduto,
+        string numeroLote,
+        string refReservaAtiva,
+        string refReservaExpirada)
     {
-        return await cn.ExecuteScalarAsync<int>(
-            @"INSERT INTO dbo.Produto (IdOrganizacao, Codigo, Nome, ControlaLote, Ativo)
-              OUTPUT INSERTED.IdProduto
-              VALUES (@IdOrganizacao, @Codigo, @Nome, 1, 1);",
-            new { IdOrganizacao = idOrganizacao, Codigo = codigoProduto, Nome = nomeProduto },
+        var configuration = factory.Services.GetRequiredService<IConfiguration>();
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__PostgresConnection")
+            ?? configuration.GetConnectionString("PostgresConnection")
+            ?? configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("Connection string PostgreSQL nao configurada para testes.");
+
+        using var db = sqlFactory.CreateConnection();
+        if (db is not DbConnection cn)
+            throw new InvalidOperationException("Conexao de banco nao suportada para testes.");
+        cn.ConnectionString = connectionString;
+
+        await cn.OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+
+        await cn.ExecuteAsync("SELECT pg_advisory_xact_lock(hashtext(@r));", new { r = "PF_IT_ESTOQUE_SETUP" }, tx);
+
+        var idProduto = await cn.ExecuteScalarAsync<int>(
+            @"INSERT INTO public.""Produto"" (""IdOrganizacao"", ""Codigo"", ""Nome"", ""ControlaLote"", ""Ativo"")
+              VALUES (@IdOrganizacao, @Codigo, @Nome, TRUE, TRUE)
+              RETURNING ""IdProduto"";",
+            new { IdOrganizacao = orgSetup.IdOrganizacao, Codigo = codigoProduto, Nome = nomeProduto },
             tx);
+
+        var idLote = await cn.ExecuteScalarAsync<int>(
+            @"INSERT INTO public.""Lote"" (""IdOrganizacao"", ""IdProduto"", ""NumeroLote"", ""DataFabricacao"", ""DataValidade"", ""Bloqueado"")
+              VALUES (@IdOrganizacao, @IdProduto, @NumeroLote, TIMEZONE('UTC', NOW()) - INTERVAL '30 day', TIMEZONE('UTC', NOW()) + INTERVAL '365 day', FALSE)
+              RETURNING ""IdLote"";",
+            new { IdOrganizacao = orgSetup.IdOrganizacao, IdProduto = idProduto, NumeroLote = numeroLote },
+            tx);
+
+        var idEstoque = await cn.ExecuteScalarAsync<int>(
+            @"INSERT INTO public.""Estoque"" (""IdOrganizacao"", ""IdUnidadeOrganizacional"", ""IdProduto"", ""IdLote"", ""QuantidadeDisponivel"", ""QuantidadeReservada"")
+              VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 120, 20)
+              RETURNING ""IdEstoque"";",
+            new { IdOrganizacao = orgSetup.IdOrganizacao, IdUnidade = orgSetup.IdUnidade, IdProduto = idProduto, IdLote = idLote },
+            tx);
+
+        var idReservaAtiva = await cn.ExecuteScalarAsync<int>(
+            @"INSERT INTO public.""ReservaEstoque"" (""IdOrganizacao"", ""IdUnidadeOrganizacional"", ""IdProduto"", ""IdLote"", ""Quantidade"", ""ExpiraEmUtc"", ""Status"", ""DocumentoReferencia"")
+              VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 10, TIMEZONE('UTC', NOW()) + INTERVAL '2 hour', 'ATIVA', @DocumentoReferencia)
+              RETURNING ""IdReservaEstoque"";",
+            new { IdOrganizacao = orgSetup.IdOrganizacao, IdUnidade = orgSetup.IdUnidade, IdProduto = idProduto, IdLote = idLote, DocumentoReferencia = refReservaAtiva },
+            tx);
+
+        var idReservaExpirada = await cn.ExecuteScalarAsync<int>(
+            @"INSERT INTO public.""ReservaEstoque"" (""IdOrganizacao"", ""IdUnidadeOrganizacional"", ""IdProduto"", ""IdLote"", ""Quantidade"", ""ExpiraEmUtc"", ""Status"", ""DocumentoReferencia"")
+              VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 4, TIMEZONE('UTC', NOW()) - INTERVAL '2 hour', 'ATIVA', @DocumentoReferencia)
+              RETURNING ""IdReservaEstoque"";",
+            new { IdOrganizacao = orgSetup.IdOrganizacao, IdUnidade = orgSetup.IdUnidade, IdProduto = idProduto, IdLote = idLote, DocumentoReferencia = refReservaExpirada },
+            tx);
+
+        await tx.CommitAsync();
+
+        return BuildResult(orgSetup, idProduto, idLote, idEstoque, idReservaAtiva, idReservaExpirada, codigoProduto, refReservaAtiva);
     }
 
-    private static async Task<int> UpsertLoteAsync(IDbConnection cn, IDbTransaction tx, int idOrganizacao, int idProduto, string numeroLote)
-    {
-        return await cn.ExecuteScalarAsync<int>(
-            @"INSERT INTO dbo.Lote (IdOrganizacao, IdProduto, NumeroLote, DataFabricacao, DataValidade, Bloqueado)
-              OUTPUT INSERTED.IdLote
-              VALUES (@IdOrganizacao, @IdProduto, @NumeroLote, DATEADD(DAY, -30, SYSUTCDATETIME()), DATEADD(DAY, 365, SYSUTCDATETIME()), 0);",
-            new { IdOrganizacao = idOrganizacao, IdProduto = idProduto, NumeroLote = numeroLote },
-            tx);
-    }
-
-    private static async Task<int> UpsertEstoqueAsync(
-        IDbConnection cn,
-        IDbTransaction tx,
-        int idOrganizacao,
-        int idUnidade,
+    private static EstoqueTestDataResult BuildResult(
+        OrganizacaoTestDataResult orgSetup,
         int idProduto,
-        int idLote)
+        int idLote,
+        int idEstoque,
+        int idReservaAtiva,
+        int idReservaExpirada,
+        string codigoProduto,
+        string refReservaAtiva)
     {
-        var id = await cn.ExecuteScalarAsync<int?>(
-            @"SELECT TOP (1) IdEstoque
-              FROM dbo.Estoque
-              WHERE IdOrganizacao = @IdOrganizacao
-                AND IdUnidadeOrganizacional = @IdUnidade
-                AND IdProduto = @IdProduto
-                AND ((IdLote IS NULL AND @IdLote IS NULL) OR IdLote = @IdLote);",
-            new { IdOrganizacao = idOrganizacao, IdUnidade = idUnidade, IdProduto = idProduto, IdLote = idLote },
-            tx);
-
-        if (id.HasValue)
+        return new EstoqueTestDataResult
         {
-            await cn.ExecuteAsync(
-                @"UPDATE dbo.Estoque
-                  SET QuantidadeDisponivel = 120,
-                      QuantidadeReservada = 20
-                  WHERE IdEstoque = @IdEstoque;",
-                new { IdEstoque = id.Value },
-                tx);
-            return id.Value;
-        }
-
-        return await cn.ExecuteScalarAsync<int>(
-            @"INSERT INTO dbo.Estoque (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, QuantidadeDisponivel, QuantidadeReservada)
-              OUTPUT INSERTED.IdEstoque
-              VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 120, 20);",
-            new { IdOrganizacao = idOrganizacao, IdUnidade = idUnidade, IdProduto = idProduto, IdLote = idLote },
-            tx);
-    }
-
-    private static async Task<int> UpsertReservaAtivaAsync(
-        IDbConnection cn,
-        IDbTransaction tx,
-        int idOrganizacao,
-        int idUnidade,
-        int idProduto,
-        int idLote,
-        string documentoReferencia)
-    {
-        return await cn.ExecuteScalarAsync<int>(
-            @"INSERT INTO dbo.ReservaEstoque (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, Quantidade, ExpiraEmUtc, Status, DocumentoReferencia)
-              OUTPUT INSERTED.IdReservaEstoque
-              VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 10, DATEADD(HOUR, 2, SYSUTCDATETIME()), N'ATIVA', @DocumentoReferencia);",
-            new { IdOrganizacao = idOrganizacao, IdUnidade = idUnidade, IdProduto = idProduto, IdLote = idLote, DocumentoReferencia = documentoReferencia },
-            tx);
-    }
-
-    private static async Task<int> UpsertReservaExpiradaAsync(
-        IDbConnection cn,
-        IDbTransaction tx,
-        int idOrganizacao,
-        int idUnidade,
-        int idProduto,
-        int idLote,
-        string documentoReferencia)
-    {
-        return await cn.ExecuteScalarAsync<int>(
-            @"INSERT INTO dbo.ReservaEstoque (IdOrganizacao, IdUnidadeOrganizacional, IdProduto, IdLote, Quantidade, ExpiraEmUtc, Status, DocumentoReferencia)
-              OUTPUT INSERTED.IdReservaEstoque
-              VALUES (@IdOrganizacao, @IdUnidade, @IdProduto, @IdLote, 4, DATEADD(HOUR, -2, SYSUTCDATETIME()), N'ATIVA', @DocumentoReferencia);",
-            new { IdOrganizacao = idOrganizacao, IdUnidade = idUnidade, IdProduto = idProduto, IdLote = idLote, DocumentoReferencia = documentoReferencia },
-            tx);
+            IdOrganizacao = orgSetup.IdOrganizacao,
+            IdUnidade = orgSetup.IdUnidade,
+            IdProduto = idProduto,
+            IdLote = idLote,
+            IdEstoque = idEstoque,
+            IdReservaAtiva = idReservaAtiva,
+            IdReservaExpirada = idReservaExpirada,
+            CodigoProduto = codigoProduto,
+            DocumentoReservaAtiva = refReservaAtiva,
+            Login = orgSetup.Login,
+            Senha = orgSetup.Senha
+        };
     }
 }
 

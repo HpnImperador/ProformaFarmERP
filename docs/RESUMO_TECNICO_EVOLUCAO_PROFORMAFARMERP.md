@@ -921,3 +921,28 @@ Foi aplicado ajuste de robustez no teste de retry do Event Relay para eliminar i
 Resultado:
 - evita falso negativo quando o worker não pode reivindicar o item por lock residual;
 - suíte `Integration.Outbox` validada com sucesso após o ajuste.
+
+## 65) Bootstrap Auth PostgreSQL para Ambiente Novo
+Foi adicionado bootstrap de autenticação para suportar execução de scripts organizacionais e login em banco PostgreSQL limpo:
+
+- novo script: `docs/sql/postgresql/000_auth_base_postgresql.sql`;
+- estrutura criada de forma idempotente:
+  - `Usuario`;
+  - `Perfil`;
+  - `UsuarioPerfil`;
+  - `RefreshToken`;
+- `scripts/dev-loop.ps1` atualizado para executar `000` antes do `001`.
+
+Objetivo:
+- eliminar dependência implícita de tabelas de Auth pré-existentes no PostgreSQL do laboratório.
+
+## 66) Compatibilidade de Naming SQL Server -> PostgreSQL (dbo/core/integration)
+Foi criada camada de compatibilidade para consultas legadas não-citadas:
+
+- novo script: `docs/sql/postgresql/007_compat_unquoted_aliases_postgresql.sql`;
+- cria schemas de compatibilidade (`dbo`, `core`, `integration`) com views mapeando para objetos citados existentes;
+- resolve incompatibilidade entre:
+  - SQL do código/testes em formato `dbo.X`, `Core.X`, `Integration.X`;
+  - objetos PostgreSQL criados com identificadores citados (`"Usuario"`, `"Core"."OutboxEvent"`, etc.).
+
+Também foi atualizado o `scripts/dev-loop.ps1` para executar o `007` após o `006`.

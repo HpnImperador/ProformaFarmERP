@@ -50,7 +50,21 @@ public sealed class EstoqueReservasOperacaoEndpointTests : IClassFixture<CustomW
         var setup = await EstoqueTestDataSetup.EnsureAsync(_factory);
         using var client = await CreateAuthenticatedClientAsync(setup.Login, setup.Senha);
 
-        var response = await client.PostAsync($"/api/estoque/reservas/{setup.IdReservaAtiva}/confirmar", content: null);
+        var criar = await client.PostAsJsonAsync("/api/estoque/reservas", new
+        {
+            idOrganizacao = setup.IdOrganizacao,
+            idUnidadeOrganizacional = setup.IdUnidade,
+            idProduto = setup.IdProduto,
+            idLote = setup.IdLote,
+            quantidade = 2m,
+            ttlMinutos = 20,
+            documentoReferencia = "IT-RES-CONFIRM"
+        });
+        var criarBody = await criar.Content.ReadFromJsonAsync<ApiResponse<ReservaPayload>>();
+        Assert.NotNull(criarBody);
+        Assert.True(criarBody!.Success);
+
+        var response = await client.PostAsync($"/api/estoque/reservas/{criarBody.Data!.IdReservaEstoque}/confirmar", content: null);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<ReservaPayload>>();
